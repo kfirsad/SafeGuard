@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Map, List, Filter, Bell } from "lucide-react";
+import { Map, List, Filter, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EventCard, { Event } from "@/components/EventCard";
 import { Badge } from "@/components/ui/badge";
@@ -75,13 +75,14 @@ const ResponderDashboard = () => {
                 {activeCount} events in your area
               </p>
             </div>
-            <Button variant="ghost" size="icon" className="relative">
-              <Bell className="w-5 h-5" />
-              {criticalCount > 0 && (
-                <span className="absolute -top-1 -right-1 w-5 h-5 bg-destructive text-destructive-foreground text-xs rounded-full flex items-center justify-center">
-                  {criticalCount}
-                </span>
-              )}
+            <Button 
+              variant="outline" 
+              size="sm" 
+              className="gap-2"
+              onClick={() => navigate("/responder/history")}
+            >
+              <History className="w-4 h-4" />
+              History
             </Button>
           </div>
 
