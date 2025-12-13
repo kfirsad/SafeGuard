@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Camera, Mic, Video, MapPin, Send, Heart, Shield, Flame, AlertTriangle } from "lucide-react";
+import { ArrowLeft, Camera, Mic, Video, Send, Heart, Shield, Flame, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
@@ -17,7 +17,6 @@ const categories = [
 const CreateReport = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [description, setDescription] = useState("");
-  const [attachments, setAttachments] = useState<string[]>([]);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -35,7 +34,7 @@ const CreateReport = () => {
       title: "Report Submitted",
       description: "Emergency responders have been notified",
     });
-    navigate("/dashboard");
+    navigate("/chat");
   };
 
   return (
@@ -98,32 +97,11 @@ const CreateReport = () => {
           />
         </motion.div>
 
-        {/* Location */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
-          <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
-            Location
-          </h2>
-          <div className="glass-card p-4 flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-success/20 flex items-center justify-center">
-              <MapPin className="w-5 h-5 text-success" />
-            </div>
-            <div className="flex-1">
-              <p className="text-sm font-medium text-foreground">Current Location</p>
-              <p className="text-xs text-muted-foreground">Using GPS coordinates</p>
-            </div>
-            <Button variant="ghost" size="sm">Change</Button>
-          </div>
-        </motion.div>
-
         {/* Media Attachments */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
+          transition={{ delay: 0.2 }}
         >
           <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
             Attachments (Optional)
@@ -148,7 +126,7 @@ const CreateReport = () => {
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
+          transition={{ delay: 0.3 }}
           className="pt-4"
         >
           <Button

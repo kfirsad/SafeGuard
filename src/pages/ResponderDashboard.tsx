@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { Map, List, Filter, Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EventCard, { Event } from "@/components/EventCard";
@@ -51,9 +52,14 @@ const mockEvents: Event[] = [
 const ResponderDashboard = () => {
   const [view, setView] = useState<"list" | "map">("list");
   const [events] = useState<Event[]>(mockEvents);
+  const navigate = useNavigate();
 
   const activeCount = events.filter(e => e.status !== "closed").length;
   const criticalCount = events.filter(e => e.severity === "critical").length;
+
+  const handleEventClick = (eventId: string) => {
+    navigate(`/responder/event/${eventId}`);
+  };
 
   return (
     <div className="min-h-screen bg-background">
@@ -125,7 +131,7 @@ const ResponderDashboard = () => {
               key={event.id}
               event={event}
               index={index}
-              onClick={() => console.log("Event clicked:", event.id)}
+              onClick={() => handleEventClick(event.id)}
             />
           ))}
         </div>

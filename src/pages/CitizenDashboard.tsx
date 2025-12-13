@@ -1,19 +1,51 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
+import { HelpCircle } from "lucide-react";
 import SOSButton from "@/components/SOSButton";
 import QuickActions from "@/components/QuickActions";
 import StatusBar from "@/components/StatusBar";
 import BottomNav from "@/components/BottomNav";
 import EmergencyTypeSelector, { EmergencyType } from "@/components/EmergencyTypeSelector";
+import SOSConfirmDialog from "@/components/SOSConfirmDialog";
+import LocationPermissionDialog from "@/components/LocationPermissionDialog";
+import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
+import { Button } from "@/components/ui/button";
 
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
+  const [showSOSConfirm, setShowSOSConfirm] = useState(false);
+  const [showLocationPermission, setShowLocationPermission] = useState(false);
+  const [showHowItWorks, setShowHowItWorks] = useState(false);
+  const [hasLocation, setHasLocation] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  const handleSOSActivate = () => {
+  useEffect(() => {
+    // Check location permission on mount
+    if (navigator.geolocation) {
+      navigator.permissions?.query({ name: "geolocation" }).then((result) => {
+        if (result.state === "granted") {
+          setHasLocation(true);
+        } else if (result.state === "prompt") {
+          setShowLocationPermission(true);
+        } else {
+          setHasLocation(false);
+        }
+      }).catch(() => {
+        // Fallback for browsers that don't support permissions API
+        setShowLocationPermission(true);
+      });
+    }
+  }, []);
+
+  const handleSOSPress = () => {
+    setShowSOSConfirm(true);
+  };
+
+  const handleSOSConfirm = () => {
+    setShowSOSConfirm(false);
     setShowEmergencySelector(true);
   };
 
@@ -23,12 +55,34 @@ const CitizenDashboard = () => {
       title: "Emergency Alert Sent",
       description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
     });
-    navigate("/emergency-active");
+    navigate("/chat");
+  };
+
+  const handleAllowLocation = () => {
+    navigator.geolocation.getCurrentPosition(
+      () => {
+        setHasLocation(true);
+        setShowLocationPermission(false);
+        toast({
+          title: "Location Enabled",
+          description: "Your location will help responders find you faster.",
+        });
+      },
+      () => {
+        setHasLocation(false);
+        setShowLocationPermission(false);
+        toast({
+          title: "Location Denied",
+          description: "Some features may be limited without location access.",
+          variant: "destructive",
+        });
+      }
+    );
   };
 
   return (
     <div className="min-h-screen bg-background pb-24">
-      <StatusBar isConnected={true} hasLocation={true} />
+      <StatusBar isConnected={true} hasLocation={hasLocation} />
 
       <div className="px-6 pt-4">
         <motion.div
@@ -36,11 +90,21 @@ const CitizenDashboard = () => {
           animate={{ opacity: 1, y: 0 }}
           className="text-center mb-8"
         >
-          <h1 className="text-2xl font-display font-bold text-foreground mb-1">
-            Emergency Services
-          </h1>
+          <div className="flex items-center justify-center gap-2 mb-1">
+            <h1 className="text-2xl font-display font-bold text-foreground">
+              Emergency Services
+            </h1>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="w-8 h-8"
+              onClick={() => setShowHowItWorks(true)}
+            >
+              <HelpCircle className="w-5 h-5 text-muted-foreground" />
+            </Button>
+          </div>
           <p className="text-muted-foreground">
-            Double-tap SOS for immediate help
+            Tap SOS for immediate help
           </p>
         </motion.div>
 
@@ -50,7 +114,7 @@ const CitizenDashboard = () => {
           transition={{ delay: 0.2 }}
           className="flex justify-center mb-12"
         >
-          <SOSButton onActivate={handleSOSActivate} />
+          <SOSButton onActivate={handleSOSPress} />
         </motion.div>
 
         <motion.div
@@ -65,6 +129,12 @@ const CitizenDashboard = () => {
         </motion.div>
       </div>
 
+      <SOSConfirmDialog
+        isOpen={showSOSConfirm}
+        onConfirm={handleSOSConfirm}
+        onCancel={() => setShowSOSConfirm(false)}
+      />
+
       <AnimatePresence>
         {showEmergencySelector && (
           <EmergencyTypeSelector
@@ -73,6 +143,17 @@ const CitizenDashboard = () => {
           />
         )}
       </AnimatePresence>
+
+      <LocationPermissionDialog
+        isOpen={showLocationPermission}
+        onAllow={handleAllowLocation}
+        onDeny={() => setShowLocationPermission(false)}
+      />
+
+      <HowItWorksModal
+        isOpen={showHowItWorks}
+        onClose={() => setShowHowItWorks(false)}
+      />
 
       <BottomNav />
     </div>

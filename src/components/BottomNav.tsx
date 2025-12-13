@@ -1,9 +1,8 @@
-import { Home, FileText, MessageSquare, User } from "lucide-react";
+import { Home, MessageSquare, User } from "lucide-react";
 import { NavLink } from "./NavLink";
 
 const navItems = [
   { path: "/dashboard", icon: Home, label: "Home" },
-  { path: "/history", icon: FileText, label: "Reports" },
   { path: "/chat", icon: MessageSquare, label: "Chat" },
   { path: "/profile", icon: User, label: "Profile" },
 ];

@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import { motion } from "framer-motion";
 import { AlertTriangle } from "lucide-react";
 
 interface SOSButtonProps {
@@ -7,28 +6,6 @@ interface SOSButtonProps {
 }
 
 const SOSButton = ({ onActivate }: SOSButtonProps) => {
-  const [isPressed, setIsPressed] = useState(false);
-  const [pressCount, setPressCount] = useState(0);
-  const [lastPressTime, setLastPressTime] = useState(0);
-
-  const handlePress = () => {
-    const now = Date.now();
-    
-    if (now - lastPressTime < 500) {
-      setPressCount(prev => prev + 1);
-      if (pressCount >= 1) {
-        onActivate();
-        setPressCount(0);
-      }
-    } else {
-      setPressCount(1);
-    }
-    
-    setLastPressTime(now);
-    setIsPressed(true);
-    setTimeout(() => setIsPressed(false), 150);
-  };
-
   return (
     <div className="relative flex items-center justify-center">
       {/* Outer pulse rings */}
@@ -62,10 +39,9 @@ const SOSButton = ({ onActivate }: SOSButtonProps) => {
 
       {/* Main SOS Button */}
       <motion.button
-        onClick={handlePress}
+        onClick={onActivate}
         className="relative z-10 w-40 h-40 rounded-full bg-gradient-emergency flex flex-col items-center justify-center gap-2 shadow-2xl shadow-primary/50 cursor-pointer select-none"
         whileTap={{ scale: 0.95 }}
-        animate={isPressed ? { scale: 0.95 } : { scale: 1 }}
         style={{
           boxShadow: "0 0 60px hsl(var(--primary) / 0.5), 0 0 100px hsl(var(--primary) / 0.3), inset 0 -4px 20px rgba(0,0,0,0.3)",
         }}
@@ -75,20 +51,6 @@ const SOSButton = ({ onActivate }: SOSButtonProps) => {
           SOS
         </span>
       </motion.button>
-
-      {/* Instruction text */}
-      <AnimatePresence>
-        {pressCount === 1 && (
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute -bottom-16 text-sm text-muted-foreground text-center"
-          >
-            Tap again to confirm
-          </motion.p>
-        )}
-      </AnimatePresence>
     </div>
   );
 };

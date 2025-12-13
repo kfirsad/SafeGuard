@@ -1,5 +1,5 @@
 import { motion } from "framer-motion";
-import { FileText, History, MapPin, Phone } from "lucide-react";
+import { FileText, MessageSquare } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 const actions = [
@@ -11,25 +11,11 @@ const actions = [
     color: "from-primary/20 to-accent/20",
   },
   {
-    id: "history",
-    label: "My Reports",
-    icon: History,
-    path: "/history",
+    id: "chat",
+    label: "Active Chat",
+    icon: MessageSquare,
+    path: "/chat",
     color: "from-success/20 to-success/10",
-  },
-  {
-    id: "nearby",
-    label: "Nearby",
-    icon: MapPin,
-    path: "/nearby",
-    color: "from-emergency-medical/20 to-emergency-medical/10",
-  },
-  {
-    id: "contacts",
-    label: "Contacts",
-    icon: Phone,
-    path: "/contacts",
-    color: "from-emergency-police/20 to-emergency-police/10",
   },
 ];
 
