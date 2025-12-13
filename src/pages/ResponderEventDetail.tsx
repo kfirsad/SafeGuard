@@ -1,11 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image, Phone, Video, Navigation, X, Lock } from "lucide-react";
+import { ArrowLeft, Send, Mic, Image, Phone, Navigation, Lock, RotateCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import CloseEventDialog from "@/components/CloseEventDialog";
+import ReactivateEventDialog from "@/components/ReactivateEventDialog";
 import { useToast } from "@/hooks/use-toast";
 
 interface Message {
@@ -58,14 +59,28 @@ const mockEvent = {
   status: "in_progress" as const,
 };
 
+const quickReplies = [
+  "Yes",
+  "Coming your way",
+  "Stay calm, help is on the way",
+  "Can you describe your exact location?",
+  "Are there any injuries?",
+  "I'm 2 minutes away",
+  "Stay on the line",
+  "Is anyone with you?",
+];
+
 const ResponderEventDetail = () => {
   const { eventId } = useParams();
   const [messages, setMessages] = useState<Message[]>(mockMessages);
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
   const [showCloseDialog, setShowCloseDialog] = useState(false);
-  const [isClosed, setIsClosed] = useState(false);
-  const [closeSummary, setCloseSummary] = useState<string | null>(null);
+  const [showReactivateDialog, setShowReactivateDialog] = useState(false);
+  const [isClosed, setIsClosed] = useState(eventId?.startsWith("10")); // Mock: events starting with 10x are closed
+  const [closeSummary, setCloseSummary] = useState<string | null>(
+    eventId?.startsWith("10") ? "Emergency resolved. Patient was stable upon arrival." : null
+  );
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -78,12 +93,13 @@ const ResponderEventDetail = () => {
     scrollToBottom();
   }, [messages]);
 
-  const handleSend = () => {
-    if (!newMessage.trim() || isClosed) return;
+  const handleSend = (text?: string) => {
+    const messageText = text || newMessage;
+    if (!messageText.trim() || isClosed) return;
 
     const message: Message = {
       id: Date.now().toString(),
-      text: newMessage,
+      text: messageText,
       sender: "responder",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       type: "text",
@@ -91,6 +107,10 @@ const ResponderEventDetail = () => {
 
     setMessages([...messages, message]);
     setNewMessage("");
+  };
+
+  const handleQuickReply = (reply: string) => {
+    handleSend(reply);
   };
 
   const handleCloseEvent = (reason: string, summary: string) => {
@@ -103,8 +123,17 @@ const ResponderEventDetail = () => {
     });
   };
 
+  const handleReactivateEvent = () => {
+    setShowReactivateDialog(false);
+    setIsClosed(false);
+    setCloseSummary(null);
+    toast({
+      title: "Event Reactivated",
+      description: "The citizen has been notified that the event is active again.",
+    });
+  };
+
   const handleNavigate = () => {
-    // Open external maps app
     window.open(`https://maps.google.com/?q=${encodeURIComponent(mockEvent.location)}`, "_blank");
   };
 
@@ -144,7 +173,7 @@ const ResponderEventDetail = () => {
           <span className="text-xs text-muted-foreground">
             {mockEvent.type.charAt(0).toUpperCase() + mockEvent.type.slice(1)} Emergency
           </span>
-          {!isClosed && (
+          {!isClosed ? (
             <Button
               variant="outline"
               size="sm"
@@ -152,6 +181,16 @@ const ResponderEventDetail = () => {
               className="text-xs h-7"
             >
               Close Event
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowReactivateDialog(true)}
+              className="text-xs h-7 gap-1"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reactivate
             </Button>
           )}
         </div>
@@ -200,8 +239,25 @@ const ResponderEventDetail = () => {
 
       {/* Input */}
       {!isClosed ? (
-        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4">
-          <div className="flex items-center gap-3 max-w-lg mx-auto">
+        <div className="bg-card/90 backdrop-blur-xl border-t border-border">
+          {/* Quick replies */}
+          <div className="px-4 pt-3 pb-2 overflow-x-auto">
+            <div className="flex gap-2">
+              {quickReplies.map((reply) => (
+                <Button
+                  key={reply}
+                  variant="outline"
+                  size="sm"
+                  className="whitespace-nowrap text-xs h-8"
+                  onClick={() => handleQuickReply(reply)}
+                >
+                  {reply}
+                </Button>
+              ))}
+            </div>
+          </div>
+          
+          <div className="flex items-center gap-3 p-4 pt-2 max-w-lg mx-auto">
             <Button variant="ghost" size="icon">
               <Image className="w-5 h-5" />
             </Button>
@@ -217,7 +273,7 @@ const ResponderEventDetail = () => {
             </div>
 
             {newMessage.trim() ? (
-              <Button variant="emergency" size="icon" onClick={handleSend}>
+              <Button variant="emergency" size="icon" onClick={() => handleSend()}>
                 <Send className="w-5 h-5" />
               </Button>
             ) : (
@@ -244,6 +300,12 @@ const ResponderEventDetail = () => {
         isOpen={showCloseDialog}
         onClose={() => setShowCloseDialog(false)}
         onSubmit={handleCloseEvent}
+      />
+
+      <ReactivateEventDialog
+        isOpen={showReactivateDialog}
+        onConfirm={handleReactivateEvent}
+        onCancel={() => setShowReactivateDialog(false)}
       />
     </div>
   );
