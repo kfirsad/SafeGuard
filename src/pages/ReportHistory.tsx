@@ -1,10 +1,9 @@
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Clock, CheckCircle, AlertCircle, XCircle } from "lucide-react";
+import { ArrowLeft, Clock, CheckCircle, AlertCircle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import EventCard, { Event } from "@/components/EventCard";
-import BottomNav from "@/components/BottomNav";
 
 const mockHistory: Event[] = [
   {
@@ -50,7 +49,7 @@ const ReportHistory = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="min-h-screen bg-background pb-24">
+    <div className="min-h-screen bg-background">
       {/* Header */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-4 px-4 py-4">
@@ -59,10 +58,10 @@ const ReportHistory = () => {
           </Button>
           <div>
             <h1 className="text-lg font-display font-semibold text-foreground">
-              My Reports
+              Report History
             </h1>
             <p className="text-xs text-muted-foreground">
-              {mockHistory.length} reports total
+              {mockHistory.length} past reports
             </p>
           </div>
         </div>
@@ -89,7 +88,7 @@ const ReportHistory = () => {
               <div className="p-4">
                 <EventCard
                   event={report}
-                  onClick={() => navigate(`/report/${report.id}`)}
+                  onClick={() => navigate(`/report/${report.id}/chat`)}
                   index={0}
                 />
               </div>
@@ -107,16 +106,20 @@ const ReportHistory = () => {
                     );
                   })()}
                 </div>
-                <Button variant="ghost" size="sm">
-                  View Details
+                <Button 
+                  variant="ghost" 
+                  size="sm"
+                  onClick={() => navigate(`/report/${report.id}/chat`)}
+                  className="gap-2"
+                >
+                  <MessageSquare className="w-4 h-4" />
+                  View Chat
                 </Button>
               </div>
             </div>
           </motion.div>
         ))}
       </div>
-
-      <BottomNav />
     </div>
   );
 };

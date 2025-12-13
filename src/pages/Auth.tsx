@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Shield, Phone, Lock, ArrowRight, User, Briefcase } from "lucide-react";
+import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 
-type AuthStep = "role" | "phone" | "otp" | "password";
+type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
 type UserRole = "citizen" | "responder";
 
 const Auth = () => {
@@ -15,12 +16,20 @@ const Auth = () => {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
+  const [acceptedTerms, setAcceptedTerms] = useState(false);
+  const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);
-    setStep("phone");
+    setStep("terms");
+  };
+
+  const handleTermsAccept = () => {
+    if (acceptedTerms && acceptedPrivacy) {
+      setStep("phone");
+    }
   };
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
@@ -120,6 +129,80 @@ const Auth = () => {
             </motion.div>
           )}
 
+          {step === "terms" && (
+            <motion.div
+              key="terms"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="w-full max-w-sm space-y-6"
+            >
+              <div className="text-center">
+                <h2 className="text-xl font-display font-semibold text-foreground mb-2">
+                  Terms & Conditions
+                </h2>
+                <p className="text-muted-foreground text-sm">
+                  Please review and accept our terms to continue
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 p-4 glass-card">
+                  <Checkbox
+                    id="terms"
+                    checked={acceptedTerms}
+                    onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
+                  />
+                  <label htmlFor="terms" className="text-sm text-foreground cursor-pointer">
+                    I have read and agree to the{" "}
+                    <button
+                      onClick={() => navigate("/terms")}
+                      className="text-primary underline"
+                    >
+                      Terms of Service
+                    </button>
+                  </label>
+                </div>
+
+                <div className="flex items-start gap-3 p-4 glass-card">
+                  <Checkbox
+                    id="privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) => setAcceptedPrivacy(checked as boolean)}
+                  />
+                  <label htmlFor="privacy" className="text-sm text-foreground cursor-pointer">
+                    I have read and agree to the{" "}
+                    <button
+                      onClick={() => navigate("/privacy")}
+                      className="text-primary underline"
+                    >
+                      Privacy Policy
+                    </button>
+                  </label>
+                </div>
+
+                <Button 
+                  onClick={handleTermsAccept}
+                  variant="emergency" 
+                  size="xl" 
+                  className="w-full"
+                  disabled={!acceptedTerms || !acceptedPrivacy}
+                >
+                  Continue
+                  <ArrowRight className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setStep("role")}
+                className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                ← Back to role selection
+              </button>
+            </motion.div>
+          )}
+
           {step === "phone" && (
             <motion.form
               key="phone"
@@ -158,10 +241,10 @@ const Auth = () => {
 
               <button
                 type="button"
-                onClick={() => setStep("role")}
+                onClick={() => setStep("terms")}
                 className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                ← Back to role selection
+                ← Back
               </button>
             </motion.form>
           )}
@@ -260,7 +343,19 @@ const Auth = () => {
 
       {/* Footer */}
       <div className="py-6 text-center text-xs text-muted-foreground relative z-10">
-        By continuing, you agree to our Terms of Service and Privacy Policy
+        <button 
+          onClick={() => navigate("/terms")}
+          className="hover:text-foreground transition-colors"
+        >
+          Terms of Service
+        </button>
+        {" • "}
+        <button 
+          onClick={() => navigate("/privacy")}
+          className="hover:text-foreground transition-colors"
+        >
+          Privacy Policy
+        </button>
       </div>
     </div>
   );
