@@ -18,18 +18,13 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
+  const [isNewUser] = useState(true); // In real app, this would come from backend
   const navigate = useNavigate();
   const { toast } = useToast();
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);
-    setStep("terms");
-  };
-
-  const handleTermsAccept = () => {
-    if (acceptedTerms && acceptedPrivacy) {
-      setStep("phone");
-    }
+    setStep("phone");
   };
 
   const handlePhoneSubmit = (e: React.FormEvent) => {
@@ -45,9 +40,36 @@ const Auth = () => {
     }
   };
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleOtpVerify = (e: React.FormEvent) => {
     e.preventDefault();
-    if ((role === "citizen" && otp.length === 6) || (role === "responder" && password.length >= 6)) {
+    if (otp.length === 6) {
+      // For new users, show terms acceptance
+      if (isNewUser) {
+        setStep("terms");
+      } else {
+        // Existing user, go directly to dashboard
+        toast({
+          title: "Welcome back!",
+          description: "You're now logged in",
+        });
+        navigate("/dashboard");
+      }
+    }
+  };
+
+  const handlePasswordVerify = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (password.length >= 6) {
+      toast({
+        title: "Welcome!",
+        description: "You're now logged in as a responder",
+      });
+      navigate("/responder");
+    }
+  };
+
+  const handleTermsAccept = () => {
+    if (acceptedTerms && acceptedPrivacy) {
       toast({
         title: "Welcome!",
         description: `You're now logged in as a ${role}`,
@@ -129,80 +151,6 @@ const Auth = () => {
             </motion.div>
           )}
 
-          {step === "terms" && (
-            <motion.div
-              key="terms"
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -20 }}
-              className="w-full max-w-sm space-y-6"
-            >
-              <div className="text-center">
-                <h2 className="text-xl font-display font-semibold text-foreground mb-2">
-                  Terms & Conditions
-                </h2>
-                <p className="text-muted-foreground text-sm">
-                  Please review and accept our terms to continue
-                </p>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-start gap-3 p-4 glass-card">
-                  <Checkbox
-                    id="terms"
-                    checked={acceptedTerms}
-                    onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
-                  />
-                  <label htmlFor="terms" className="text-sm text-foreground cursor-pointer">
-                    I have read and agree to the{" "}
-                    <button
-                      onClick={() => navigate("/terms")}
-                      className="text-primary underline"
-                    >
-                      Terms of Service
-                    </button>
-                  </label>
-                </div>
-
-                <div className="flex items-start gap-3 p-4 glass-card">
-                  <Checkbox
-                    id="privacy"
-                    checked={acceptedPrivacy}
-                    onCheckedChange={(checked) => setAcceptedPrivacy(checked as boolean)}
-                  />
-                  <label htmlFor="privacy" className="text-sm text-foreground cursor-pointer">
-                    I have read and agree to the{" "}
-                    <button
-                      onClick={() => navigate("/privacy")}
-                      className="text-primary underline"
-                    >
-                      Privacy Policy
-                    </button>
-                  </label>
-                </div>
-
-                <Button 
-                  onClick={handleTermsAccept}
-                  variant="emergency" 
-                  size="xl" 
-                  className="w-full"
-                  disabled={!acceptedTerms || !acceptedPrivacy}
-                >
-                  Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
-                </Button>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setStep("role")}
-                className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                ← Back to role selection
-              </button>
-            </motion.div>
-          )}
-
           {step === "phone" && (
             <motion.form
               key="phone"
@@ -241,10 +189,10 @@ const Auth = () => {
 
               <button
                 type="button"
-                onClick={() => setStep("terms")}
+                onClick={() => setStep("role")}
                 className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
-                ← Back
+                ← Back to role selection
               </button>
             </motion.form>
           )}
@@ -255,7 +203,7 @@ const Auth = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              onSubmit={handleVerify}
+              onSubmit={handleOtpVerify}
               className="w-full max-w-sm space-y-6"
             >
               <div className="text-center">
@@ -299,7 +247,7 @@ const Auth = () => {
               initial={{ opacity: 0, x: 20 }}
               animate={{ opacity: 1, x: 0 }}
               exit={{ opacity: 0, x: -20 }}
-              onSubmit={handleVerify}
+              onSubmit={handlePasswordVerify}
               className="w-full max-w-sm space-y-6"
             >
               <div className="text-center">
@@ -337,6 +285,82 @@ const Auth = () => {
                 ← Change phone number
               </button>
             </motion.form>
+          )}
+
+          {step === "terms" && (
+            <motion.div
+              key="terms"
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -20 }}
+              className="w-full max-w-sm space-y-6"
+            >
+              <div className="text-center">
+                <h2 className="text-xl font-display font-semibold text-foreground mb-2">
+                  Almost there!
+                </h2>
+                <p className="text-muted-foreground text-sm">
+                  Please review and accept our terms to complete your registration
+                </p>
+              </div>
+
+              <div className="space-y-4">
+                <div className="flex items-start gap-3 p-4 glass-card">
+                  <Checkbox
+                    id="terms"
+                    checked={acceptedTerms}
+                    onCheckedChange={(checked) => setAcceptedTerms(checked as boolean)}
+                  />
+                  <label htmlFor="terms" className="text-sm text-foreground cursor-pointer">
+                    I have read and agree to the{" "}
+                    <button
+                      type="button"
+                      onClick={() => navigate("/terms")}
+                      className="text-primary underline"
+                    >
+                      Terms of Service
+                    </button>
+                  </label>
+                </div>
+
+                <div className="flex items-start gap-3 p-4 glass-card">
+                  <Checkbox
+                    id="privacy"
+                    checked={acceptedPrivacy}
+                    onCheckedChange={(checked) => setAcceptedPrivacy(checked as boolean)}
+                  />
+                  <label htmlFor="privacy" className="text-sm text-foreground cursor-pointer">
+                    I have read and agree to the{" "}
+                    <button
+                      type="button"
+                      onClick={() => navigate("/privacy")}
+                      className="text-primary underline"
+                    >
+                      Privacy Policy
+                    </button>
+                  </label>
+                </div>
+
+                <Button 
+                  onClick={handleTermsAccept}
+                  variant="emergency" 
+                  size="xl" 
+                  className="w-full"
+                  disabled={!acceptedTerms || !acceptedPrivacy}
+                >
+                  Complete Registration
+                  <Check className="w-5 h-5 ml-2" />
+                </Button>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setStep("otp")}
+                className="w-full text-center text-sm text-muted-foreground hover:text-foreground transition-colors"
+              >
+                ← Back
+              </button>
+            </motion.div>
           )}
         </AnimatePresence>
       </div>
