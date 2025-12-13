@@ -8,6 +8,7 @@ import Auth from "./pages/Auth";
 import CitizenDashboard from "./pages/CitizenDashboard";
 import ResponderDashboard from "./pages/ResponderDashboard";
 import ResponderEventDetail from "./pages/ResponderEventDetail";
+import ResponderHistory from "./pages/ResponderHistory";
 import CreateReport from "./pages/CreateReport";
 import ReportHistory from "./pages/ReportHistory";
 import ReportChat from "./pages/ReportChat";
@@ -31,6 +32,7 @@ const App = () => (
           <Route path="/dashboard" element={<CitizenDashboard />} />
           <Route path="/responder" element={<ResponderDashboard />} />
           <Route path="/responder/event/:eventId" element={<ResponderEventDetail />} />
+          <Route path="/responder/history" element={<ResponderHistory />} />
           <Route path="/report" element={<CreateReport />} />
           <Route path="/history" element={<ReportHistory />} />
           <Route path="/report/:reportId/chat" element={<ReportChat />} />
