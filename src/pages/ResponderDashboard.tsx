@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Map, List, Filter, History } from "lucide-react";
+import { List, History, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EventCard, { Event } from "@/components/EventCard";
 import { Badge } from "@/components/ui/badge";
 import EventMap from "@/components/EventMap";
+import { motion, AnimatePresence } from "framer-motion";
 
 const mockEvents: Event[] = [
   {
@@ -50,7 +51,7 @@ const mockEvents: Event[] = [
 ];
 
 const ResponderDashboard = () => {
-  const [view, setView] = useState<"list" | "map">("list");
+  const [showEventsList, setShowEventsList] = useState(false);
   const [events] = useState<Event[]>(mockEvents);
   const navigate = useNavigate();
 
@@ -62,19 +63,27 @@ const ResponderDashboard = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
-        <div className="px-6 py-4">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-xl font-display font-bold text-foreground">
-                Active Events
-              </h1>
-              <p className="text-sm text-muted-foreground">
-                {activeCount} events in your area
-              </p>
-            </div>
+    <div className="h-screen bg-background relative overflow-hidden">
+      {/* Full-screen Map */}
+      <div className="absolute inset-0">
+        <EventMap events={events} onEventClick={handleEventClick} />
+      </div>
+
+      {/* Floating Header */}
+      <div className="absolute top-0 left-0 right-0 z-10 p-4">
+        <div className="glass-card px-4 py-3 flex items-center justify-between">
+          <div>
+            <h1 className="text-lg font-display font-bold text-foreground">
+              Active Events
+            </h1>
+            <p className="text-xs text-muted-foreground">
+              {activeCount} events in your area
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <Badge variant="destructive" className="gap-1">
+              {criticalCount} Critical
+            </Badge>
             <Button 
               variant="outline" 
               size="sm" 
@@ -82,65 +91,72 @@ const ResponderDashboard = () => {
               onClick={() => navigate("/responder/history")}
             >
               <History className="w-4 h-4" />
-              History
             </Button>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center bg-secondary rounded-xl p-1">
-              <button
-                onClick={() => setView("list")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  view === "list"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <List className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setView("map")}
-                className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                  view === "map"
-                    ? "bg-card text-foreground shadow-sm"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
-              >
-                <Map className="w-4 h-4" />
-              </button>
-            </div>
-
-            <Button variant="outline" size="sm" className="gap-2">
-              <Filter className="w-4 h-4" />
-              Filter
-            </Button>
-
-            <div className="flex gap-2 ml-auto">
-              <Badge variant="destructive" className="gap-1">
-                {criticalCount} Critical
-              </Badge>
-            </div>
           </div>
         </div>
       </div>
 
-      {/* Content */}
-      {view === "list" ? (
-        <div className="p-4 space-y-3">
-          {events.map((event, index) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              index={index}
-              onClick={() => handleEventClick(event.id)}
+      {/* Floating Events List Button */}
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
+        <Button
+          onClick={() => setShowEventsList(true)}
+          variant="emergency"
+          size="lg"
+          className="gap-2 shadow-lg"
+        >
+          <List className="w-5 h-5" />
+          View All Events ({activeCount})
+        </Button>
+      </div>
+
+      {/* Events List Sheet */}
+      <AnimatePresence>
+        {showEventsList && (
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-background/80 backdrop-blur-sm z-20"
+              onClick={() => setShowEventsList(false)}
             />
-          ))}
-        </div>
-      ) : (
-        <div className="h-[calc(100vh-180px)]">
-          <EventMap events={events} onEventClick={handleEventClick} />
-        </div>
-      )}
+
+            {/* Sheet */}
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="absolute bottom-0 left-0 right-0 z-30 bg-card rounded-t-3xl max-h-[80vh] overflow-hidden"
+            >
+              <div className="sticky top-0 bg-card border-b border-border p-4 flex items-center justify-between">
+                <h2 className="text-lg font-display font-bold text-foreground">
+                  All Active Events
+                </h2>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setShowEventsList(false)}
+                >
+                  <X className="w-5 h-5" />
+                </Button>
+              </div>
+
+              <div className="p-4 space-y-3 overflow-y-auto max-h-[calc(80vh-60px)]">
+                {events.map((event, index) => (
+                  <EventCard
+                    key={event.id}
+                    event={event}
+                    index={index}
+                    onClick={() => handleEventClick(event.id)}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
