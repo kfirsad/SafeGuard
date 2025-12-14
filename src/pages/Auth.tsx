@@ -1,14 +1,20 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check } from "lucide-react";
+import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
-type UserRole = "citizen" | "responder";
+type UserRole = "citizen" | "responder" | "admin";
+
+// Admin credentials (in production, this would be validated server-side)
+const ADMIN_CREDENTIALS = {
+  phone: "1234567890",
+  password: "admin123"
+};
 
 const Auth = () => {
   const [step, setStep] = useState<AuthStep>("role");
@@ -18,7 +24,7 @@ const Auth = () => {
   const [password, setPassword] = useState("");
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
-  const [isNewUser] = useState(true); // In real app, this would come from backend
+  const [isNewUser] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -43,11 +49,9 @@ const Auth = () => {
   const handleOtpVerify = (e: React.FormEvent) => {
     e.preventDefault();
     if (otp.length === 6) {
-      // For new users, show terms acceptance
       if (isNewUser) {
         setStep("terms");
       } else {
-        // Existing user, go directly to dashboard
         toast({
           title: "Welcome back!",
           description: "You're now logged in",
@@ -60,11 +64,28 @@ const Auth = () => {
   const handlePasswordVerify = (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length >= 6) {
-      toast({
-        title: "Welcome!",
-        description: "You're now logged in as a responder",
-      });
-      navigate("/responder");
+      // Check for admin credentials
+      if (role === "admin") {
+        if (phone === ADMIN_CREDENTIALS.phone && password === ADMIN_CREDENTIALS.password) {
+          toast({
+            title: "Welcome Admin!",
+            description: "Redirecting to admin panel",
+          });
+          navigate("/admin");
+        } else {
+          toast({
+            title: "Invalid credentials",
+            description: "Please check your phone and password",
+            variant: "destructive",
+          });
+        }
+      } else {
+        toast({
+          title: "Welcome!",
+          description: "You're now logged in as a responder",
+        });
+        navigate("/responder");
+      }
     }
   };
 
@@ -147,6 +168,22 @@ const Auth = () => {
                   <p className="text-sm text-muted-foreground">Respond to emergencies</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
+              </button>
+
+              <button
+                onClick={() => handleRoleSelect("admin")}
+                className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group border border-primary/20"
+              >
+                <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center">
+                  <Settings className="w-7 h-7 text-primary" />
+                </div>
+                <div className="text-left flex-1">
+                  <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
+                    Administrator
+                  </h3>
+                  <p className="text-sm text-muted-foreground">Manage app settings</p>
+                </div>
+                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
               </button>
             </motion.div>
           )}
