@@ -1,10 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
-import mapboxgl from 'mapbox-gl';
-import 'mapbox-gl/dist/mapbox-gl.css';
+import { useState, useCallback } from 'react';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
 import { Event } from './EventCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { MapPin, Key, AlertTriangle } from 'lucide-react';
+import { Key, AlertTriangle, Loader2 } from 'lucide-react';
 
 interface EventMapProps {
   events: Event[];
@@ -12,11 +11,11 @@ interface EventMapProps {
 }
 
 // Mock coordinates for events (in real app, events would have lat/lng)
-const mockCoordinates: Record<string, [number, number]> = {
-  "1": [-73.9857, 40.7484], // NYC area
-  "2": [-73.9800, 40.7520],
-  "3": [-73.9700, 40.7600],
-  "4": [-73.9900, 40.7400],
+const mockCoordinates: Record<string, { lat: number; lng: number }> = {
+  "1": { lat: 40.7484, lng: -73.9857 },
+  "2": { lat: 40.7520, lng: -73.9800 },
+  "3": { lat: 40.7600, lng: -73.9700 },
+  "4": { lat: 40.7400, lng: -73.9900 },
 };
 
 const severityColors: Record<string, string> = {
@@ -26,156 +25,81 @@ const severityColors: Record<string, string> = {
   low: '#22c55e',
 };
 
-const EventMap = ({ events, onEventClick }: EventMapProps) => {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<mapboxgl.Map | null>(null);
-  const markersRef = useRef<mapboxgl.Marker[]>([]);
-  
-  const [mapboxToken, setMapboxToken] = useState(() => 
-    localStorage.getItem('mapbox_token') || ''
-  );
-  const [tokenInput, setTokenInput] = useState(mapboxToken);
-  const [isTokenValid, setIsTokenValid] = useState(!!mapboxToken);
-  const [isLoading, setIsLoading] = useState(false);
+const mapContainerStyle = {
+  width: '100%',
+  height: '100%',
+};
 
-  const saveToken = () => {
-    setIsLoading(true);
-    localStorage.setItem('mapbox_token', tokenInput);
-    setMapboxToken(tokenInput);
-    setIsTokenValid(true);
-    setIsLoading(false);
+const defaultCenter = { lat: 40.7484, lng: -73.9857 };
+
+const darkMapStyles = [
+  { elementType: "geometry", stylers: [{ color: "#1a1a2e" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a1a2e" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8a8a9a" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a2a4a" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a2e" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e0e1a" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1f1f3a" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#1a2a1a" }] },
+];
+
+const EventMap = ({ events, onEventClick }: EventMapProps) => {
+  const [apiKey, setApiKey] = useState(() => 
+    localStorage.getItem('google_maps_api_key') || ''
+  );
+  const [keyInput, setKeyInput] = useState(apiKey);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
+
+  const saveApiKey = () => {
+    localStorage.setItem('google_maps_api_key', keyInput);
+    setApiKey(keyInput);
+    window.location.reload(); // Reload to reinitialize the map with new key
   };
 
-  useEffect(() => {
-    if (!mapContainer.current || !mapboxToken) return;
-
-    try {
-      mapboxgl.accessToken = mapboxToken;
-      
-      map.current = new mapboxgl.Map({
-        container: mapContainer.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: [-73.9857, 40.7484],
-        zoom: 12,
-      });
-
-      map.current.addControl(
-        new mapboxgl.NavigationControl({
-          visualizePitch: true,
-        }),
-        'top-right'
-      );
-
-      // Add markers for events
-      events.forEach((event) => {
-        const coords = mockCoordinates[event.id];
-        if (!coords) return;
-
-        const el = document.createElement('div');
-        el.className = 'event-marker';
-        el.innerHTML = `
-          <div style="
-            width: 40px;
-            height: 40px;
-            background: ${severityColors[event.severity]};
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            box-shadow: 0 0 20px ${severityColors[event.severity]}80;
-            border: 3px solid white;
-            transition: transform 0.2s;
-          ">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2">
-              <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
-              <circle cx="12" cy="10" r="3"></circle>
-            </svg>
-          </div>
-        `;
-
-        el.addEventListener('click', () => onEventClick(event.id));
-        el.addEventListener('mouseenter', () => {
-          el.style.transform = 'scale(1.2)';
-        });
-        el.addEventListener('mouseleave', () => {
-          el.style.transform = 'scale(1)';
-        });
-
-        const marker = new mapboxgl.Marker(el)
-          .setLngLat(coords)
-          .setPopup(
-            new mapboxgl.Popup({ offset: 25 }).setHTML(`
-              <div style="padding: 8px;">
-                <strong style="color: ${severityColors[event.severity]}; text-transform: uppercase;">
-                  ${event.severity}
-                </strong>
-                <p style="margin: 4px 0; font-weight: 600;">${event.type}</p>
-                <p style="margin: 0; font-size: 12px; color: #666;">${event.location}</p>
-                <p style="margin: 4px 0 0; font-size: 11px; color: #888;">${event.distance} away</p>
-              </div>
-            `)
-          )
-          .addTo(map.current!);
-
-        markersRef.current.push(marker);
-      });
-
-      return () => {
-        markersRef.current.forEach(marker => marker.remove());
-        markersRef.current = [];
-        map.current?.remove();
-      };
-    } catch (error) {
-      console.error('Map initialization error:', error);
-      setIsTokenValid(false);
-    }
-  }, [mapboxToken, events, onEventClick]);
-
-  if (!isTokenValid || !mapboxToken) {
+  if (!apiKey) {
     return (
       <div className="h-full flex items-center justify-center p-6">
         <div className="glass-card p-6 max-w-md w-full space-y-4">
           <div className="flex items-center gap-3 text-warning">
             <Key className="w-6 h-6" />
-            <h3 className="text-lg font-semibold text-foreground">Mapbox Token Required</h3>
+            <h3 className="text-lg font-semibold text-foreground">Google Maps API Key Required</h3>
           </div>
           
           <p className="text-sm text-muted-foreground">
-            To display the map, please enter your Mapbox public token. You can get one from{' '}
+            To display the map, please enter your Google Maps API key. You can get one from{' '}
             <a 
-              href="https://mapbox.com/" 
+              href="https://console.cloud.google.com/google/maps-apis" 
               target="_blank" 
               rel="noopener noreferrer"
               className="text-primary underline"
             >
-              mapbox.com
+              Google Cloud Console
             </a>
-            {' '}→ Tokens section in your dashboard.
+            {' '}→ Credentials section.
           </p>
 
           <div className="space-y-3">
             <Input
               type="text"
-              placeholder="pk.eyJ1..."
-              value={tokenInput}
-              onChange={(e) => setTokenInput(e.target.value)}
+              placeholder="AIza..."
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
               className="bg-secondary border-border"
             />
             <Button 
-              onClick={saveToken} 
+              onClick={saveApiKey} 
               variant="emergency" 
               className="w-full"
-              disabled={!tokenInput || isLoading}
+              disabled={!keyInput}
             >
-              {isLoading ? 'Validating...' : 'Save & Load Map'}
+              Save & Load Map
             </Button>
           </div>
 
           <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-lg">
             <AlertTriangle className="w-4 h-4 text-warning mt-0.5" />
             <p className="text-xs text-muted-foreground">
-              Your token is stored locally and never sent to our servers.
+              Your API key is stored locally and never sent to our servers.
             </p>
           </div>
         </div>
@@ -183,10 +107,126 @@ const EventMap = ({ events, onEventClick }: EventMapProps) => {
     );
   }
 
+  return <MapWithKey apiKey={apiKey} events={events} onEventClick={onEventClick} selectedEvent={selectedEvent} setSelectedEvent={setSelectedEvent} />;
+};
+
+interface MapWithKeyProps {
+  apiKey: string;
+  events: Event[];
+  onEventClick: (eventId: string) => void;
+  selectedEvent: Event | null;
+  setSelectedEvent: (event: Event | null) => void;
+}
+
+const MapWithKey = ({ apiKey, events, onEventClick, selectedEvent, setSelectedEvent }: MapWithKeyProps) => {
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: apiKey,
+  });
+
+  const onMapClick = useCallback(() => {
+    setSelectedEvent(null);
+  }, [setSelectedEvent]);
+
+  if (loadError) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="glass-card p-6 max-w-md w-full space-y-4 text-center">
+          <AlertTriangle className="w-12 h-12 text-destructive mx-auto" />
+          <h3 className="text-lg font-semibold text-foreground">Failed to load map</h3>
+          <p className="text-sm text-muted-foreground">
+            Please check your API key and ensure the Maps JavaScript API is enabled.
+          </p>
+          <Button 
+            onClick={() => {
+              localStorage.removeItem('google_maps_api_key');
+              window.location.reload();
+            }}
+            variant="outline"
+          >
+            Enter New API Key
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+
   return (
     <div className="relative h-full">
-      <div ref={mapContainer} className="absolute inset-0" />
-      
+      <GoogleMap
+        mapContainerStyle={mapContainerStyle}
+        center={defaultCenter}
+        zoom={13}
+        onClick={onMapClick}
+        options={{
+          styles: darkMapStyles,
+          disableDefaultUI: false,
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
+        }}
+      >
+        {events.map((event) => {
+          const coords = mockCoordinates[event.id];
+          if (!coords) return null;
+
+          return (
+            <Marker
+              key={event.id}
+              position={coords}
+              onClick={() => setSelectedEvent(event)}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: severityColors[event.severity],
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 3,
+              }}
+            />
+          );
+        })}
+
+        {selectedEvent && mockCoordinates[selectedEvent.id] && (
+          <InfoWindow
+            position={mockCoordinates[selectedEvent.id]}
+            onCloseClick={() => setSelectedEvent(null)}
+          >
+            <div className="p-2 min-w-[200px]">
+              <div 
+                className="text-xs font-bold uppercase mb-1"
+                style={{ color: severityColors[selectedEvent.severity] }}
+              >
+                {selectedEvent.severity}
+              </div>
+              <h3 className="font-semibold text-gray-900 capitalize mb-1">
+                {selectedEvent.type}
+              </h3>
+              <p className="text-sm text-gray-600 mb-2">
+                {selectedEvent.location}
+              </p>
+              <p className="text-xs text-gray-500 mb-3">
+                {selectedEvent.distance} away • {selectedEvent.timestamp}
+              </p>
+              <button
+                onClick={() => onEventClick(selectedEvent.id)}
+                className="w-full bg-red-500 text-white text-sm py-2 px-4 rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                View Details
+              </button>
+            </div>
+          </InfoWindow>
+        )}
+      </GoogleMap>
+
       {/* Legend */}
       <div className="absolute bottom-4 left-4 glass-card p-3 space-y-2">
         <p className="text-xs font-semibold text-foreground">Severity</p>
