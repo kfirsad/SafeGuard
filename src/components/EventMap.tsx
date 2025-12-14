@@ -45,7 +45,7 @@ const darkMapStyles = [
 
 const EventMap = ({ events, onEventClick }: EventMapProps) => {
   const [apiKey, setApiKey] = useState(() => 
-    localStorage.getItem('google_maps_api_key') || ''
+    localStorage.getItem('google_maps_api_key') || 'AIzaSyBwzetcbdfIxTd_bMwou3qymNteXUuZQyw'
   );
   const [keyInput, setKeyInput] = useState(apiKey);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
