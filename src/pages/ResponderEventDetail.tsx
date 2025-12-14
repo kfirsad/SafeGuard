@@ -57,6 +57,7 @@ const mockEvent = {
   citizenName: "John Doe",
   citizenPhone: "+1 555-123-4567",
   status: "in_progress" as const,
+  coordinates: { lat: 32.0853, lng: 34.7818 }, // Mock coordinates for navigation
 };
 
 const quickReplies = [
@@ -134,7 +135,29 @@ const ResponderEventDetail = () => {
   };
 
   const handleNavigate = () => {
-    window.open(`https://maps.google.com/?q=${encodeURIComponent(mockEvent.location)}`, "_blank");
+    const { lat, lng } = mockEvent.coordinates;
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    
+    if (isMobile) {
+      // Try to open Waze first, fallback to Google Maps
+      const wazeUrl = `waze://?ll=${lat},${lng}&navigate=yes`;
+      const googleMapsUrl = `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`;
+      
+      // Create a hidden iframe to test Waze
+      const wazeFrame = document.createElement('iframe');
+      wazeFrame.style.display = 'none';
+      wazeFrame.src = wazeUrl;
+      document.body.appendChild(wazeFrame);
+      
+      // Fallback to Google Maps after a delay
+      setTimeout(() => {
+        document.body.removeChild(wazeFrame);
+        window.open(googleMapsUrl, '_blank');
+      }, 1500);
+    } else {
+      // Desktop - open Google Maps
+      window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}&travelmode=driving`, "_blank");
+    }
   };
 
   return (

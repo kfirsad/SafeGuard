@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { HelpCircle } from "lucide-react";
@@ -7,7 +7,7 @@ import QuickActions from "@/components/QuickActions";
 import StatusBar from "@/components/StatusBar";
 import BottomNav from "@/components/BottomNav";
 import EmergencyTypeSelector, { EmergencyType } from "@/components/EmergencyTypeSelector";
-import SOSConfirmDialog from "@/components/SOSConfirmDialog";
+import SOSCountdown from "@/components/SOSCountdown";
 import LocationPermissionDialog from "@/components/LocationPermissionDialog";
 import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
@@ -15,10 +15,11 @@ import { Button } from "@/components/ui/button";
 
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
-  const [showSOSConfirm, setShowSOSConfirm] = useState(false);
+  const [showSOSCountdown, setShowSOSCountdown] = useState(false);
   const [showLocationPermission, setShowLocationPermission] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [hasLocation, setHasLocation] = useState(false);
+  const [capturedLocation, setCapturedLocation] = useState<GeolocationCoordinates | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
 
@@ -41,13 +42,14 @@ const CitizenDashboard = () => {
   }, []);
 
   const handleSOSPress = () => {
-    setShowSOSConfirm(true);
+    setShowSOSCountdown(true);
   };
 
-  const handleSOSConfirm = () => {
-    setShowSOSConfirm(false);
+  const handleSOSSend = useCallback((location: GeolocationCoordinates | null) => {
+    setCapturedLocation(location);
+    setShowSOSCountdown(false);
     setShowEmergencySelector(true);
-  };
+  }, []);
 
   const handleEmergencySelect = (type: EmergencyType) => {
     setShowEmergencySelector(false);
@@ -55,7 +57,8 @@ const CitizenDashboard = () => {
       title: "Emergency Alert Sent",
       description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
     });
-    navigate("/chat");
+    // Pass location data to chat via state
+    navigate("/chat", { state: { location: capturedLocation, emergencyType: type } });
   };
 
   const handleAllowLocation = () => {
@@ -129,10 +132,10 @@ const CitizenDashboard = () => {
         </motion.div>
       </div>
 
-      <SOSConfirmDialog
-        isOpen={showSOSConfirm}
-        onConfirm={handleSOSConfirm}
-        onCancel={() => setShowSOSConfirm(false)}
+      <SOSCountdown
+        isOpen={showSOSCountdown}
+        onSend={handleSOSSend}
+        onCancel={() => setShowSOSCountdown(false)}
       />
 
       <AnimatePresence>
