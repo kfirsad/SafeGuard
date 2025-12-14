@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Map, List, Filter, History } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import EventCard, { Event } from "@/components/EventCard";
 import { Badge } from "@/components/ui/badge";
+import EventMap from "@/components/EventMap";
 
 const mockEvents: Event[] = [
   {
@@ -137,15 +137,8 @@ const ResponderDashboard = () => {
           ))}
         </div>
       ) : (
-        <div className="relative h-[calc(100vh-180px)] bg-secondary/50 flex items-center justify-center">
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            className="text-center"
-          >
-            <Map className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-            <p className="text-muted-foreground">Map view coming soon</p>
-          </motion.div>
+        <div className="h-[calc(100vh-180px)]">
+          <EventMap events={events} onEventClick={handleEventClick} />
         </div>
       )}
     </div>

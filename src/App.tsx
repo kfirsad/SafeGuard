@@ -17,6 +17,7 @@ import Profile from "./pages/Profile";
 import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
+import AdminPanel from "./pages/AdminPanel";
 
 const queryClient = new QueryClient();
 
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/responder" element={<ResponderDashboard />} />
           <Route path="/responder/event/:eventId" element={<ResponderEventDetail />} />
           <Route path="/responder/history" element={<ResponderHistory />} />
+          <Route path="/admin" element={<AdminPanel />} />
           <Route path="/report" element={<CreateReport />} />
           <Route path="/history" element={<ReportHistory />} />
           <Route path="/report/:reportId/chat" element={<ReportChat />} />
