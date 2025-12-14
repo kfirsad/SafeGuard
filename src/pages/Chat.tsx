@@ -1,10 +1,18 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
-import { useNavigate } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video } from "lucide-react";
+import { useNavigate, useLocation } from "react-router-dom";
+import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import BottomNav from "@/components/BottomNav";
+import CancelReportDialog from "@/components/CancelReportDialog";
+import { useToast } from "@/hooks/use-toast";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 interface Message {
   id: string;
@@ -49,8 +57,14 @@ const Chat = () => {
   const [messages, setMessages] = useState<Message[]>(mockMessages);
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  const [showCancelDialog, setShowCancelDialog] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
+  const location = useLocation();
+  const { toast } = useToast();
+
+  const locationData = location.state?.location;
+  const emergencyType = location.state?.emergencyType;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -75,12 +89,21 @@ const Chat = () => {
     setNewMessage("");
   };
 
+  const handleCancelReport = () => {
+    setShowCancelDialog(false);
+    toast({
+      title: "Report Cancelled",
+      description: "Emergency responders have been notified that help is no longer needed.",
+    });
+    navigate("/dashboard");
+  };
+
   return (
     <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-3 px-4 py-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
+          <Button variant="ghost" size="icon" onClick={() => navigate("/dashboard")}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
           
@@ -101,9 +124,22 @@ const Chat = () => {
             <Button variant="ghost" size="icon">
               <Video className="w-5 h-5" />
             </Button>
-            <Button variant="ghost" size="icon">
-              <MoreVertical className="w-5 h-5" />
-            </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="ghost" size="icon">
+                  <MoreVertical className="w-5 h-5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem 
+                  className="text-destructive focus:text-destructive"
+                  onClick={() => setShowCancelDialog(true)}
+                >
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel Emergency
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
       </div>
@@ -173,6 +209,12 @@ const Chat = () => {
           )}
         </div>
       </div>
+
+      <CancelReportDialog
+        isOpen={showCancelDialog}
+        onConfirm={handleCancelReport}
+        onCancel={() => setShowCancelDialog(false)}
+      />
 
       <BottomNav />
     </div>
