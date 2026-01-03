@@ -11,10 +11,12 @@ import {
   signInWithPhoneNumber,
   ConfirmationResult,
 } from "firebase/auth";
+import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth } from "@/lib/sendOTP";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
-type UserRole = "citizen" | "responder" | "admin";
+// type UserRole = "citizen" | "responder" | "admin";
+type UserRole = "citizen" | "worker"
 
 // Admin credentials (in production, this would be validated server-side)
 const ADMIN_CREDENTIALS = {
@@ -74,6 +76,14 @@ const Auth = () => {
             variant: "destructive",
           });
         }}
+      if (role === "worker") {
+        setStep("password");
+        toast({
+          title: "Enter password",
+          description: "Enter your secure password to continue",
+        });
+      }
+
     }
   };
 
@@ -102,30 +112,68 @@ const Auth = () => {
   }
 };
 
-  const handlePasswordVerify = (e: React.FormEvent) => {
+  // const handlePasswordVerify = (e: React.FormEvent) => {
+  //   e.preventDefault();
+  //   if (password.length >= 6) {
+  //     // Check for admin credentials
+  //     if (role === "worker") {
+  //       if (phone === ADMIN_CREDENTIALS.phone && password === ADMIN_CREDENTIALS.password) {
+  //         toast({
+  //           title: "Welcome Admin!",
+  //           description: "Redirecting to admin panel",
+  //         });
+  //         navigate("/admin");
+  //       } else {
+  //         toast({
+  //           title: "Invalid credentials",
+  //           description: "Please check your phone and password",
+  //           variant: "destructive",
+  //         });
+  //       }
+  //     } else {
+  //       toast({
+  //         title: "Welcome!",
+  //         description: "You're now logged in as a responder",
+  //       });
+  //       navigate("/responder");
+  //     }
+  //   }
+  // };
+
+  const handlePasswordVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length >= 6) {
-      // Check for admin credentials
-      if (role === "admin") {
-        if (phone === ADMIN_CREDENTIALS.phone && password === ADMIN_CREDENTIALS.password) {
+      try{
+        //check for admin credentials
+        if (phone===ADMIN_CREDENTIALS.phone && password===ADMIN_CREDENTIALS.password){
           toast({
             title: "Welcome Admin!",
             description: "Redirecting to admin panel",
           });
           navigate("/admin");
-        } else {
+        }
+        //check for First responder
+        const isResponder= await checkResponderInRemoteDB(phone,password);
+        if (isResponder){
+          toast({
+            title: "Welcome Responder!",
+            description: "You're now logged in as a responder",
+          });
+          navigate("/responder");
+        }
+        else{
           toast({
             title: "Invalid credentials",
             description: "Please check your phone and password",
             variant: "destructive",
-          });
-        }
-      } else {
+          })}
+      }
+      catch (err) {
         toast({
-          title: "Welcome!",
-          description: "You're now logged in as a responder",
+          title: "Invalid credentials",
+          description: "Please check your phone and password",
+          variant: "destructive",
         });
-        navigate("/responder");
       }
     }
   };
@@ -197,7 +245,7 @@ const Auth = () => {
               </button>
 
               <button
-                onClick={() => handleRoleSelect("responder")}
+                onClick={() => handleRoleSelect("worker")}
                 className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group"
               >
                 <div className="w-14 h-14 rounded-xl bg-accent/20 flex items-center justify-center">
@@ -205,14 +253,14 @@ const Auth = () => {
                 </div>
                 <div className="text-left flex-1">
                   <h3 className="text-lg font-semibold text-foreground group-hover:text-accent transition-colors">
-                    First Responder
+                    Worker
                   </h3>
-                  <p className="text-sm text-muted-foreground">Respond to emergencies</p>
+                  <p className="text-sm text-muted-foreground">Operational emergency services access</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
               </button>
 
-              <button
+              {/* <button
                 onClick={() => handleRoleSelect("admin")}
                 className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group border border-primary/20"
               >
@@ -226,7 +274,7 @@ const Auth = () => {
                   <p className="text-sm text-muted-foreground">Manage app settings</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              </button>
+              </button> */}
             </motion.div>
           )}
 
