@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useEffect } from "react";
+
 import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
@@ -36,11 +38,26 @@ const Auth = () => {
   const [isNewUser] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
+ useEffect(() => {
+  const w = window as any;
+
+  if (w.recaptchaVerifier) {
+    w.recaptchaVerifier.clear();
+    delete w.recaptchaVerifier;
+  }
+
+  w.recaptchaVerifier = new RecaptchaVerifier(
+    auth,
+    "recaptcha-container",
+    { size: "invisible" }
+  );
+}, []);
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);
     setStep("phone");
   };
+  
 
   const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,14 +71,10 @@ const Auth = () => {
       // });
       if (role === "citizen") {
         try{
-          const verifier=new RecaptchaVerifier(
-            auth,
-            'recaptcha-container',
-            {size:'invisible'}
-          );
+         
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
           console.log("🔥 FINAL PHONE SENT TO FIREBASE:", normilizedPhone);
-          const result=await signInWithPhoneNumber(auth,normilizedPhone,verifier);
+          const result=await signInWithPhoneNumber(auth,normilizedPhone,(window as any).recaptchaVerifier);
           setConfirmation(result);
           setStep("otp");
           toast({
