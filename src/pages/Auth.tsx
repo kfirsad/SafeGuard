@@ -6,6 +6,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+} from "firebase/auth";
+import { auth } from "@/lib/sendOTP";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
 type UserRole = "citizen" | "responder" | "admin";
@@ -17,6 +23,7 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
+  const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
   const [phone, setPhone] = useState("");
@@ -33,33 +40,67 @@ const Auth = () => {
     setStep("phone");
   };
 
-  const handlePhoneSubmit = (e: React.FormEvent) => {
+  const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length >= 10) {
-      setStep(role === "citizen" ? "otp" : "password");
-      toast({
-        title: role === "citizen" ? "OTP Sent" : "Enter Password",
-        description: role === "citizen" 
-          ? "A verification code has been sent to your phone" 
-          : "Enter your secure password to continue",
-      });
+      // setStep(role === "citizen" ? "otp" : "password");
+      // toast({
+      //   title: role === "citizen" ? "OTP Sent" : "Enter Password",
+      //   description: role === "citizen" 
+      //     ? "A verification code has been sent to your phone" 
+      //     : "Enter your secure password to continue",
+      // });
+      if (role === "citizen") {
+        try{
+          const verifier=new RecaptchaVerifier(
+            auth,
+            'recaptcha-container',
+            {size:'invisible'}
+          );
+          const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
+          console.log("🔥 FINAL PHONE SENT TO FIREBASE:", normilizedPhone);
+          const result=await signInWithPhoneNumber(auth,normilizedPhone,verifier);
+          setConfirmation(result);
+          setStep("otp");
+          toast({
+            title: "OTP Sent",
+          });
+        }
+        catch(error: any){
+          console.error("Error during signInWithPhoneNumber",error);
+          toast({
+            title: "Error sending OTP",
+            description: error.message || "Please try again later",
+            variant: "destructive",
+          });
+        }}
     }
   };
 
-  const handleOtpVerify = (e: React.FormEvent) => {
+  const handleOtpVerify = async(e: React.FormEvent) => {
     e.preventDefault();
-    if (otp.length === 6) {
-      if (isNewUser) {
-        setStep("terms");
-      } else {
-        toast({
-          title: "Welcome back!",
-          description: "You're now logged in",
-        });
-        navigate("/dashboard");
+    if (otp.length === 6 && confirmation) {
+      try{
+        await confirmation.confirm(otp);
+        if (isNewUser) {
+          setStep("terms");
+        } else {
+          toast({
+            title: "Welcome Back!",
+            description: "You're now logged in",
+          });
+          navigate("/dashboard");
+        }
       }
+      catch (err) {
+      toast({
+        title: "Invalid code",
+        description: "The verification code is incorrect",
+        variant: "destructive",
+      });
     }
-  };
+  }
+};
 
   const handlePasswordVerify = (e: React.FormEvent) => {
     e.preventDefault();
@@ -100,6 +141,7 @@ const Auth = () => {
   };
 
   return (
+
     <div className="min-h-screen bg-background flex flex-col">
       {/* Decorative background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -418,7 +460,9 @@ const Auth = () => {
           Privacy Policy
         </button>
       </div>
+       <div id="recaptcha-container"></div>
     </div>
+   
   );
 };
 
