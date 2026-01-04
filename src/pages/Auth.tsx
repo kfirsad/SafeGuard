@@ -17,7 +17,6 @@ import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth } from "@/lib/sendOTP";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
-// type UserRole = "citizen" | "responder" | "admin";
 type UserRole = "citizen" | "worker"
 
 // Admin credentials (in production, this would be validated server-side)
@@ -62,18 +61,10 @@ const Auth = () => {
   const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length >= 10) {
-      // setStep(role === "citizen" ? "otp" : "password");
-      // toast({
-      //   title: role === "citizen" ? "OTP Sent" : "Enter Password",
-      //   description: role === "citizen" 
-      //     ? "A verification code has been sent to your phone" 
-      //     : "Enter your secure password to continue",
-      // });
       if (role === "citizen") {
         try{
          
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
-          console.log("🔥 FINAL PHONE SENT TO FIREBASE:", normilizedPhone);
           const result=await signInWithPhoneNumber(auth,normilizedPhone,(window as any).recaptchaVerifier);
           setConfirmation(result);
           setStep("otp");
@@ -85,9 +76,10 @@ const Auth = () => {
           console.error("Error during signInWithPhoneNumber",error);
           toast({
             title: "Error sending OTP",
-            description: error.message || "Please try again later",
+            description: "Please try again later",
             variant: "destructive",
           });
+          console.error("signInWithPhoneNumber error:", error);
         }}
       if (role === "worker") {
         setStep("password");
@@ -124,34 +116,6 @@ const Auth = () => {
     }
   }
 };
-
-  // const handlePasswordVerify = (e: React.FormEvent) => {
-  //   e.preventDefault();
-  //   if (password.length >= 6) {
-  //     // Check for admin credentials
-  //     if (role === "worker") {
-  //       if (phone === ADMIN_CREDENTIALS.phone && password === ADMIN_CREDENTIALS.password) {
-  //         toast({
-  //           title: "Welcome Admin!",
-  //           description: "Redirecting to admin panel",
-  //         });
-  //         navigate("/admin");
-  //       } else {
-  //         toast({
-  //           title: "Invalid credentials",
-  //           description: "Please check your phone and password",
-  //           variant: "destructive",
-  //         });
-  //       }
-  //     } else {
-  //       toast({
-  //         title: "Welcome!",
-  //         description: "You're now logged in as a responder",
-  //       });
-  //       navigate("/responder");
-  //     }
-  //   }
-  // };
 
   const handlePasswordVerify = async (e: React.FormEvent) => {
     e.preventDefault();
