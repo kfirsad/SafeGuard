@@ -1,18 +1,20 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, Lock } from "lucide-react";
+import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, Lock, Globe } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 interface Message {
   id: string;
   text: string;
+  translatedText?: string; // Added to store the translated version
   sender: "user" | "responder";
   timestamp: string;
   type: "text" | "image" | "voice";
 }
 
+// MOCKED DATA: Simulating a Spanish speaker ("User") communicating with English services
 const mockMessages: Message[] = [
   {
     id: "1",
@@ -30,7 +32,8 @@ const mockMessages: Message[] = [
   },
   {
     id: "3",
-    text: "Thank you, I'm at the main entrance of the building.",
+    text: "Gracias, estoy en la entrada principal del edificio.", // Spanish input
+    translatedText: "Thank you, I'm at the main entrance of the building.", // English output
     sender: "user",
     timestamp: "2:32 PM",
     type: "text",
@@ -54,11 +57,14 @@ const ReportChat = () => {
   const [messages, setMessages] = useState<Message[]>(mockMessages);
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
+  
+  // SIMULATION STATE: We assume the device is set to Spanish ('es')
+  const [deviceLanguage, setDeviceLanguage] = useState("es"); 
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  // Mock data - in real app this would come from the report
-  const isClosed = reportId === "1"; // Mock: report 1 is closed
+  const isClosed = reportId === "1"; 
   const summary = isClosed ? "Emergency resolved. Patient was stable upon arrival. Transported to City Hospital for further evaluation. No additional units required." : null;
 
   const scrollToBottom = () => {
@@ -69,12 +75,27 @@ const ReportChat = () => {
     scrollToBottom();
   }, [messages]);
 
+  // --- TRANSLATION LOGIC ---
+  const processMessageTranslation = (text: string, lang: string): string | undefined => {
+    // If language is English, no translation needed
+    if (lang === 'en') return undefined;
+
+    // DUMMY TRANSLATION LOGIC
+    // In a real app, this is where you'd call Google/AWS Translate API
+    console.log(`Detecting language ${lang}... Translating to English.`);
+    return `[Translated]: ${text} (Simulated English)`;
+  };
+
   const handleSend = () => {
     if (!newMessage.trim() || isClosed) return;
+
+    // 1. Check language and get translation if needed
+    const translatedVersion = processMessageTranslation(newMessage, deviceLanguage);
 
     const message: Message = {
       id: Date.now().toString(),
       text: newMessage,
+      translatedText: translatedVersion, // Store the translation
       sender: "user",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       type: "text",
@@ -109,6 +130,10 @@ const ReportChat = () => {
                   <span className="text-xs text-muted-foreground">Active</span>
                 </>
               )}
+               {/* Language Indicator for Demo */}
+               <span className="text-xs text-muted-foreground ml-2 border-l pl-2 flex items-center gap-1">
+                 <Globe className="w-3 h-3" /> {deviceLanguage.toUpperCase()} Mode
+               </span>
             </div>
           </div>
 
@@ -156,6 +181,16 @@ const ReportChat = () => {
               }`}
             >
               <p className="text-sm">{message.text}</p>
+              
+              {/* Show Translated Text if it exists */}
+              {message.translatedText && (
+                <div className={`mt-2 pt-2 border-t text-xs italic ${
+                   message.sender === "user" ? "border-primary-foreground/20 text-primary-foreground/80" : "border-foreground/10 text-muted-foreground"
+                }`}>
+                  {message.translatedText}
+                </div>
+              )}
+
               <p
                 className={`text-xs mt-1 ${
                   message.sender === "user"
@@ -181,7 +216,7 @@ const ReportChat = () => {
 
             <div className="flex-1 relative">
               <Input
-                placeholder="Type a message..."
+                placeholder={deviceLanguage === 'es' ? "Escribe un mensaje..." : "Type a message..."}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSend()}
@@ -190,7 +225,7 @@ const ReportChat = () => {
             </div>
 
             {newMessage.trim() ? (
-              <Button variant="emergency" size="icon" onClick={handleSend}>
+              <Button variant="default" size="icon" onClick={handleSend}>
                 <Send className="w-5 h-5" />
               </Button>
             ) : (
