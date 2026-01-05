@@ -14,7 +14,7 @@ import {
   ConfirmationResult,
 } from "firebase/auth";
 import { checkResponderInRemoteDB } from "@/mockDB";
-import { auth } from "@/lib/sendOTP";
+import { auth } from "@/lib/firebase";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
 type UserRole = "citizen" | "worker"
