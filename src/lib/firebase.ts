@@ -34,11 +34,14 @@ export async function addUser(phoneNumber){
       createdAt: new Date(),
       firstName:"",
       lastName:"",
-      mainAdress:"",
-      knownAlergies:[],
+      mainAddress:"",
+      knownAllergies:[],
       medicalConditions:[],
       emergencyContacts:[],
-      isVarified: false
+      Events:[],
+      lastActiveEvent:null,
+      isOnActiveEvent: false,
+      isVerified: false
      });
   }catch(e){
     console.error("Error adding document: ", e);
