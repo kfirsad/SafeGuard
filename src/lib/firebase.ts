@@ -1,8 +1,10 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore } from "firebase/firestore"; // Database
+import { getFirestore,doc,setDoc,getDoc } from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
+import { create } from "domain";
+import { get } from "http";
 
 // Your NEW configuration
 const firebaseConfig = {
@@ -14,11 +16,40 @@ const firebaseConfig = {
   appId: "1:800106331910:web:ad0c9b841b5f420cdb6887",
   measurementId: "G-SHXJ88GTE2"
 };
-
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
 // Initialize and Export Services
 export const db = getFirestore(app);
+export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+export async function addUser(phoneNumber){
+  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  try{
+    await setDoc(doc(userDB, "users", cleanedPhone), 
+    { 
+      phone: cleanedPhone,
+      createdAt: new Date(),
+      firstName:"",
+      lastName:"",
+      mainAddress:"",
+      knownAllergies:[],
+      medicalConditions:[],
+      emergencyContacts:[],
+      Events:[],
+      lastActiveEvent:null,
+      isOnActiveEvent: false,
+      isVerified: false
+     });
+  }catch(e){
+    console.error("Error adding document: ", e);
+  }
+}
+export async function findUser(phoneNumber){
+  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  const docRef = doc(userDB, "users", cleanedPhone);
+  const docSnap = await getDoc(docRef);
+  return docSnap.exists();
+}

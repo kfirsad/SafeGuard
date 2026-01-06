@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { useEffect } from "react";
+import { doc, setDoc } from "firebase/firestore";
 
 import {
   RecaptchaVerifier,
@@ -14,7 +15,7 @@ import {
   ConfirmationResult,
 } from "firebase/auth";
 import { checkResponderInRemoteDB } from "@/mockDB";
-import { auth } from "@/lib/firebase";
+import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
 type UserRole = "citizen" | "worker"
@@ -97,7 +98,7 @@ const Auth = () => {
     if (otp.length === 6 && confirmation) {
       try{
         await confirmation.confirm(otp);
-        if (isNewUser) {
+        if (await findUser(phone)===false) {
           setStep("terms");
         } else {
           toast({
@@ -155,12 +156,13 @@ const Auth = () => {
     }
   };
 
-  const handleTermsAccept = () => {
+  const handleTermsAccept = async () => {
     if (acceptedTerms && acceptedPrivacy) {
       toast({
         title: "Welcome!",
         description: `You're now logged in as a ${role}`,
       });
+      await addUser(phone);
       navigate(role === "citizen" ? "/dashboard" : "/responder");
     }
   };
