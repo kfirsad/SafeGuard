@@ -4,6 +4,7 @@ import { getFirestore,doc,setDoc,getDoc } from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
+import { get } from "http";
 
 // Your NEW configuration
 const firebaseConfig = {
@@ -20,13 +21,14 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize and Export Services
 export const db = getFirestore(app);
+export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
 export async function addUser(phoneNumber){
   const cleanedPhone = phoneNumber.replace(/\D/g, '');
   try{
-    await setDoc(doc(db, "users", cleanedPhone), 
+    await setDoc(doc(userDB, "users", cleanedPhone), 
     { 
       phone: cleanedPhone,
       createdAt: new Date(),
@@ -44,7 +46,7 @@ export async function addUser(phoneNumber){
 }
 export async function findUser(phoneNumber){
   const cleanedPhone = phoneNumber.replace(/\D/g, '');
-  const docRef = doc(db, "users", cleanedPhone);
+  const docRef = doc(userDB, "users", cleanedPhone);
   const docSnap = await getDoc(docRef);
   return docSnap.exists();
 }
