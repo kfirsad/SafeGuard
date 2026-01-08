@@ -13,7 +13,9 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
-} from "firebase/auth";
+  setPersistence,
+  browserSessionPersistence
+} from "firebase/auth"; 
 import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
 
@@ -27,6 +29,7 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
+  setPersistence(auth, browserSessionPersistence)
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
@@ -64,7 +67,6 @@ const Auth = () => {
     if (phone.length >= 10) {
       if (role === "citizen") {
         try{
-         
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
           const result=await signInWithPhoneNumber(auth,normilizedPhone,(window as any).recaptchaVerifier);
           setConfirmation(result);
