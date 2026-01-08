@@ -32,10 +32,10 @@ const ProtectedRoute = ({ children }: ProtectedRouteProps) => {
   }
 
   // If not logged in, redirect to /auth
-  // replace: ensures the user can't click "back" to return to the protected page
+
   if (!user) {
     toast({
-          title: "Not Authenticated",
+          title: "Not uthenticated",
           description: "you need to log in to access this page",
         });
     return <Navigate to="/auth" state={{ from: location }} replace />;
