@@ -3,6 +3,7 @@ import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import ProtectedRoute from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Auth from "./pages/Auth";
 import CitizenDashboard from "./pages/CitizenDashboard";
@@ -19,6 +20,7 @@ import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
 import AdminPanel from "./pages/AdminPanel";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -30,16 +32,16 @@ const App = () => (
         <Routes>
           <Route path="/" element={<Index />} />
           <Route path="/auth" element={<Auth />} />
-          <Route path="/dashboard" element={<CitizenDashboard />} />
-          <Route path="/responder" element={<ResponderDashboard />} />
-          <Route path="/responder/event/:eventId" element={<ResponderEventDetail />} />
-          <Route path="/responder/history" element={<ResponderHistory />} />
-          <Route path="/admin" element={<AdminPanel />} />
-          <Route path="/report" element={<CreateReport />} />
-          <Route path="/history" element={<ReportHistory />} />
-          <Route path="/report/:reportId/chat" element={<ReportChat />} />
-          <Route path="/chat" element={<Chat />} />
-          <Route path="/profile" element={<Profile />} />
+          <Route path="/dashboard" element={<ProtectedRoute><CitizenDashboard /></ProtectedRoute>} />
+          <Route path="/responder" element={<ProtectedRoute><ResponderDashboard /></ProtectedRoute>} />
+          <Route path="/responder/event/:eventId" element={<ProtectedRoute><ResponderEventDetail /></ProtectedRoute>} />
+          <Route path="/responder/history" element={<ProtectedRoute><ResponderHistory /></ProtectedRoute>} />
+          <Route path="/admin" element={<ProtectedRoute><AdminPanel /></ProtectedRoute>} />
+          <Route path="/report" element={<ProtectedRoute><CreateReport /></ProtectedRoute>} />
+          <Route path="/history" element={<ProtectedRoute><ReportHistory /></ProtectedRoute>} />
+          <Route path="/report/:reportId/chat" element={<ProtectedRoute><ReportChat /></ProtectedRoute>} />
+          <Route path="/chat" element={<ProtectedRoute><Chat /></ProtectedRoute>} />
+          <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
           <Route path="/terms" element={<Terms />} />
           <Route path="/privacy" element={<Privacy />} />
           <Route path="*" element={<NotFound />} />
