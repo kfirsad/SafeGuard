@@ -13,7 +13,7 @@ import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { set } from "date-fns";
-import { auth,addEmergencyEvent } from "@/lib/firebase";
+import { auth,addEmergencyEvent,createChatSession } from "@/lib/firebase";
 
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
@@ -21,8 +21,7 @@ const CitizenDashboard = () => {
   const [showLocationPermission, setShowLocationPermission] = useState(false);
   const [showHowItWorks, setShowHowItWorks] = useState(false);
   const [hasLocation, setHasLocation] = useState(false);
-  const [capturedLocation, setCapturedLocation] = useState<GeolocationCoordinates | null>(null);
-  const navigate = useNavigate();
+const [capturedLocation, setCapturedLocation] = useState<{latitude: number; longitude: number} | null>(null); const navigate = useNavigate();
   const { toast } = useToast();
   useEffect(() => {
   if (!navigator.geolocation) {
@@ -91,15 +90,6 @@ const CitizenDashboard = () => {
     setShowEmergencySelector(true);
   }, []);
 
-  // const handleEmergencySelect = (type: EmergencyType) => {
-  //   setShowEmergencySelector(false);
-  //   toast({
-  //     title: "Emergency Alert Sent",
-  //     description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
-  //   });
-  //   // Pass location data to chat via state
-  //   navigate("/chat", { state: { location: capturedLocation, emergencyType: type } });
-  // };
   const handleEmergencySelect = async (type: EmergencyType) => {
     setShowEmergencySelector(false);
     const eventId=crypto.randomUUID();
@@ -117,6 +107,7 @@ const CitizenDashboard = () => {
     const currentUserPhone=auth.currentUser?.phoneNumber||"unknown";
     if (currentUserPhone !== "unknown"){
     await addEmergencyEvent(currentUserPhone,eventData);
+    await createChatSession(eventId,currentUserPhone);
   }
   else {
     console.warn("No user logged in,event not saved to DB")
