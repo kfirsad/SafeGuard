@@ -13,6 +13,7 @@ import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { set } from "date-fns";
+import { auth,addEmergencyEvent } from "@/lib/firebase";
 
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
@@ -90,16 +91,43 @@ const CitizenDashboard = () => {
     setShowEmergencySelector(true);
   }, []);
 
-  const handleEmergencySelect = (type: EmergencyType) => {
+  // const handleEmergencySelect = (type: EmergencyType) => {
+  //   setShowEmergencySelector(false);
+  //   toast({
+  //     title: "Emergency Alert Sent",
+  //     description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
+  //   });
+  //   // Pass location data to chat via state
+  //   navigate("/chat", { state: { location: capturedLocation, emergencyType: type } });
+  // };
+  const handleEmergencySelect = async (type: EmergencyType) => {
     setShowEmergencySelector(false);
-    toast({
-      title: "Emergency Alert Sent",
-      description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
-    });
-    // Pass location data to chat via state
-    navigate("/chat", { state: { location: capturedLocation, emergencyType: type } });
-  };
-
+    const eventId=crypto.randomUUID();
+    const eventData={
+      id: eventId,
+      timeStamp:new Date().toISOString(),
+      location: capturedLocation?{
+        latitude: capturedLocation.latitude,
+        longitude: capturedLocation.longitude
+      }:null,
+      type:type,
+      severity:"SOS",
+      isActive: true
+    }
+    const currentUserPhone=auth.currentUser?.phoneNumber||"unknown";
+    if (currentUserPhone !== "unknown"){
+    await addEmergencyEvent(currentUserPhone,eventData);
+  }
+  else {
+    console.warn("No user logged in,event not saved to DB")
+  }
+  toast({
+       title: "Emergency Alert Sent",
+       description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
+  });
+  navigate("/chat", { state: { location: capturedLocation, emergencyType: type,eventId:eventId } });
+  
+  }
   const handleAllowLocation = () => {
     navigator.geolocation.getCurrentPosition(
       () => {
