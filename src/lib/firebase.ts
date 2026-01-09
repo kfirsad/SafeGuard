@@ -1,6 +1,6 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore,doc,setDoc,getDoc } from "firebase/firestore"; // Database
+import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion } from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
@@ -25,8 +25,16 @@ export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
+function normalizePhoneNumber(phone) {
+  let cleaned = phone.replace(/\D/g, ''); 
+  
+  if (cleaned.startsWith('972')) {
+    cleaned = '0' + cleaned.substring(3);
+  }
+  return cleaned;
+}
 export async function addUser(phoneNumber){
-  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
   try{
     await setDoc(doc(userDB, "users", cleanedPhone), 
     { 
@@ -48,8 +56,23 @@ export async function addUser(phoneNumber){
   }
 }
 export async function findUser(phoneNumber){
-  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
   const docRef = doc(userDB, "users", cleanedPhone);
   const docSnap = await getDoc(docRef);
   return docSnap.exists();
+}
+
+export async function addEmergencyEvent(phoneNumber,eventData){
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
+  const userRef = doc(userDB, "users", cleanedPhone);
+  try{
+    await updateDoc(userRef, {
+      Events: arrayUnion(eventData),
+      lastActiveEvent: eventData,
+      isOnActiveEvent: true
+    });
+    console.log("event successfully updated!");
+  }catch(e){
+    console.error("Error updating document: ", e);
+  }
 }
