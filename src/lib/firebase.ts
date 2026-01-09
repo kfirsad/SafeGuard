@@ -76,3 +76,25 @@ export async function addEmergencyEvent(phoneNumber,eventData){
     console.error("Error updating document: ", e);
   }
 }
+export async function createChatSession(eventId, phoneNumber) {
+  const formattedPhone = normalizePhoneNumber(phoneNumber);
+  
+  try {
+    await setDoc(doc(userDB, "reports", eventId), {
+      createdAt: new Date().toISOString(),
+      userId: formattedPhone,
+      status: "active",
+      messages: [
+        {
+          id: "system_1",
+          text: "Emergency alert received. A responder will join shortly.",
+          sender: "system",
+          timestamp: new Date().toISOString()
+        }
+      ]
+    });
+    console.log(`Chat session created for event: ${eventId}`);
+  } catch (e) {
+    console.error("Error creating chat session: ", e);
+  }
+}
