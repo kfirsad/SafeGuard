@@ -176,11 +176,35 @@ const EventMap: React.FC = () => {
 
     googleMapsApiKey: "AIzaSyBwzetcbdfIxTd_bMwou3qymNteXUuZQyw",
 
-    libraries: LIBRARIES,
+    //libraries: LIBRARIES,
 
   });
 
+  //nav func
 
+    const handleNavigate = (event: any) => {
+    if (!event) return;
+    
+    // נקודת מוצא: המיקום שלך (אם קיים), נקודת יעד: מיקום האירוע
+    const origin = userPos ? `${userPos.lat},${userPos.lng}` : "";
+    const destination = `${event.lat},${event.lng}`;
+    
+    // בניית URL לניווט (מצב נסיעה)
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
+
+    window.open(url);
+  };
+
+
+  //open chat func
+  const handleOpenChat = (event: any) => {
+    if (!event || !event.id) return;
+    
+    
+    const chatUrl = `https://shobproject.diburit.app/report/${event.id}/chat`;
+    
+    window.open(chatUrl);
+  };
 
   const onLoad = useCallback((map: google.maps.Map) => {
 
@@ -278,6 +302,8 @@ const EventMap: React.FC = () => {
 
 
 
+
+
     return () => {
 
       isMounted = false;
@@ -333,106 +359,107 @@ const EventMap: React.FC = () => {
     <div style={{ position: 'relative', height: '600px', width: '100%' }}>
 
       
-
       <GoogleMap
-
         mapContainerStyle={containerStyle}
-
         center={userPos || DEFAULT_CENTER} 
-
         zoom={14}
-
         onLoad={onLoad}
-
         onUnmount={onUnmount}
-
         options={{
-
           mapId: "38b93d472d0ccd67ae96d1e0", 
-
           disableDefaultUI: false,
-
         }}
-
       >
-
         {mapInstance && (
-
           <>
-
             {userPos && (
-
               <AdvancedMarker
-
                 map={mapInstance}
-
                 position={userPos}
-
                 icon={ICONS.USER}
-
                 title="המיקום שלי"
-
                 onClick={() => {}}
-
               />
-
             )}
 
-
-
             {mockEvents.map(ev => (
-
               <AdvancedMarker
-
                 key={ev.id}
-
                 map={mapInstance}
-
                 position={{ lat: ev.lat, lng: ev.lng }}
-
                 icon={ev.severity === 'SOS' ? ICONS.SOS : ICONS.NORMAL}
-
                 title={ev.type}
-
                 onClick={() => setSelectedEvent(ev)}
-
               />
-
             ))}
-
           </>
-
         )}
-
-
 
         {selectedEvent && (
-
           <InfoWindow
-
-            key={selectedEvent.id} // ✅ מונע באג של חלונות כפולים
-
+            key={selectedEvent.id}
             position={{ lat: selectedEvent.lat, lng: selectedEvent.lng }}
-
             onCloseClick={() => setSelectedEvent(null)}
-
             options={{ pixelOffset: new google.maps.Size(0, -40) }}
-
           >
+            {/* כל מה שבתוך ה-div הזה יופיע בתוך הבלון של המפה */}
+            <div style={{ 
+              color: 'black', 
+              direction: 'rtl', 
+              textAlign: 'right', 
+              padding: '10px',
+              minWidth: '180px' 
+            }}>
+              <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0', fontSize: '16px' }}>{selectedEvent.type}</h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>{selectedEvent.desc}</p>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {/* כפתור ניווט */}
+                <button 
+                  onClick={() => handleNavigate(selectedEvent)}
+                  style={{
+                    backgroundColor: '#4285F4',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>🚗</span> ניווט לאירוע
+                </button>
 
-            <div style={{ color: 'black', direction: 'rtl', textAlign: 'right' }}>
-
-              <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0' }}>{selectedEvent.type}</h3>
-
-              <p style={{ margin: 0 }}>{selectedEvent.desc}</p>
-
+                {/* כפתור צ'אט */}
+                <button 
+                  onClick={() => handleOpenChat(selectedEvent)}
+                  style={{
+                    backgroundColor: '#34A853',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 12px',
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  <span>💬</span> צ'אט אירוע
+                </button>
+              </div>
             </div>
-
           </InfoWindow>
-
         )}
-
       </GoogleMap>
+
+
 
 
 
@@ -441,7 +468,6 @@ const EventMap: React.FC = () => {
         <span>📍</span> המיקום שלי
 
       </button>
-
 
 
     </div>
