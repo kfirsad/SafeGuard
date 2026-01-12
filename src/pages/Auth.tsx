@@ -6,9 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
+import { useEffect } from "react";
+import { doc, setDoc } from "firebase/firestore";
+
+import {
+  RecaptchaVerifier,
+  signInWithPhoneNumber,
+  ConfirmationResult,
+} from "firebase/auth";
+import { checkResponderInRemoteDB } from "@/mockDB";
+import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
 
 type AuthStep = "role" | "phone" | "otp" | "password" | "terms";
-type UserRole = "citizen" | "responder" | "admin";
+type UserRole = "citizen" | "worker"
 
 // Admin credentials (in production, this would be validated server-side)
 const ADMIN_CREDENTIALS = {
@@ -17,6 +27,7 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
+  const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
   const [phone, setPhone] = useState("");
@@ -27,79 +38,137 @@ const Auth = () => {
   const [isNewUser] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
+ useEffect(() => {
+  const w = window as any;
+
+  if (w.recaptchaVerifier) {
+    w.recaptchaVerifier.clear();
+    delete w.recaptchaVerifier;
+  }
+
+  w.recaptchaVerifier = new RecaptchaVerifier(
+    auth,
+    "recaptcha-container",
+    { size: "invisible" }
+  );
+}, []);
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);
     setStep("phone");
   };
+  
 
-  const handlePhoneSubmit = (e: React.FormEvent) => {
+  const handlePhoneSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (phone.length >= 10) {
-      setStep(role === "citizen" ? "otp" : "password");
+      if (role === "citizen") {
+        try{
+         
+          const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
+          const result=await signInWithPhoneNumber(auth,normilizedPhone,(window as any).recaptchaVerifier);
+          setConfirmation(result);
+          setStep("otp");
+          toast({
+            title: "OTP Sent",
+          });
+        }
+        catch(error: any){
+          console.error("Error during signInWithPhoneNumber",error);
+          toast({
+            title: "Error sending OTP",
+            description: "Please try again later",
+            variant: "destructive",
+          });
+          console.error("signInWithPhoneNumber error:", error);
+        }}
+      if (role === "worker") {
+        setStep("password");
+        toast({
+          title: "Enter password",
+          description: "Enter your secure password to continue",
+        });
+      }
+
+    }
+  };
+
+  const handleOtpVerify = async(e: React.FormEvent) => {
+    e.preventDefault();
+    if (otp.length === 6 && confirmation) {
+      try{
+        await confirmation.confirm(otp);
+        if (await findUser(phone)===false) {
+          setStep("terms");
+        } else {
+          toast({
+            title: "Welcome Back!",
+            description: "You're now logged in",
+          });
+          navigate("/dashboard");
+        }
+      }
+      catch (err) {
       toast({
-        title: role === "citizen" ? "OTP Sent" : "Enter Password",
-        description: role === "citizen" 
-          ? "A verification code has been sent to your phone" 
-          : "Enter your secure password to continue",
+        title: "Invalid code",
+        description: "The verification code is incorrect",
+        variant: "destructive",
       });
     }
-  };
+  }
+};
 
-  const handleOtpVerify = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (otp.length === 6) {
-      if (isNewUser) {
-        setStep("terms");
-      } else {
-        toast({
-          title: "Welcome back!",
-          description: "You're now logged in",
-        });
-        navigate("/dashboard");
-      }
-    }
-  };
-
-  const handlePasswordVerify = (e: React.FormEvent) => {
+  const handlePasswordVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     if (password.length >= 6) {
-      // Check for admin credentials
-      if (role === "admin") {
-        if (phone === ADMIN_CREDENTIALS.phone && password === ADMIN_CREDENTIALS.password) {
+      try{
+        //check for admin credentials
+        if (phone===ADMIN_CREDENTIALS.phone && password===ADMIN_CREDENTIALS.password){
           toast({
             title: "Welcome Admin!",
             description: "Redirecting to admin panel",
           });
           navigate("/admin");
-        } else {
+        }
+        //check for First responder
+        const isResponder= await checkResponderInRemoteDB(phone,password);
+        if (isResponder){
+          toast({
+            title: "Welcome Responder!",
+            description: "You're now logged in as a responder",
+          });
+          navigate("/responder");
+        }
+        else{
           toast({
             title: "Invalid credentials",
             description: "Please check your phone and password",
             variant: "destructive",
-          });
-        }
-      } else {
+          })}
+      }
+      catch (err) {
         toast({
-          title: "Welcome!",
-          description: "You're now logged in as a responder",
+          title: "Invalid credentials",
+          description: "Please check your phone and password",
+          variant: "destructive",
         });
-        navigate("/responder");
       }
     }
   };
 
-  const handleTermsAccept = () => {
+  const handleTermsAccept = async () => {
     if (acceptedTerms && acceptedPrivacy) {
       toast({
         title: "Welcome!",
         description: `You're now logged in as a ${role}`,
       });
+      await addUser(phone);
       navigate(role === "citizen" ? "/dashboard" : "/responder");
     }
   };
 
   return (
+
     <div className="min-h-screen bg-background flex flex-col">
       {/* Decorative background */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -155,7 +224,7 @@ const Auth = () => {
               </button>
 
               <button
-                onClick={() => handleRoleSelect("responder")}
+                onClick={() => handleRoleSelect("worker")}
                 className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group"
               >
                 <div className="w-14 h-14 rounded-xl bg-accent/20 flex items-center justify-center">
@@ -163,14 +232,14 @@ const Auth = () => {
                 </div>
                 <div className="text-left flex-1">
                   <h3 className="text-lg font-semibold text-foreground group-hover:text-accent transition-colors">
-                    First Responder
+                    Worker
                   </h3>
-                  <p className="text-sm text-muted-foreground">Respond to emergencies</p>
+                  <p className="text-sm text-muted-foreground">Operational emergency services access</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
               </button>
 
-              <button
+              {/* <button
                 onClick={() => handleRoleSelect("admin")}
                 className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group border border-primary/20"
               >
@@ -184,7 +253,7 @@ const Auth = () => {
                   <p className="text-sm text-muted-foreground">Manage app settings</p>
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              </button>
+              </button> */}
             </motion.div>
           )}
 
@@ -418,7 +487,9 @@ const Auth = () => {
           Privacy Policy
         </button>
       </div>
+       <div id="recaptcha-container"></div>
     </div>
+   
   );
 };
 
