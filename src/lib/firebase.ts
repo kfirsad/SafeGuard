@@ -104,6 +104,13 @@ export async function createReport(eventId, phoneNumber, eventData) {
     type: "text",
     createdAt: serverTimestamp(),
   });
+
+  await addDoc(collection(userDB, "events", eventId, "messages"), {
+    text: "Emergency alert received. A responder will join shortly.",
+    sender: "system",
+    type: "text",
+    createdAt: serverTimestamp(),
+  });
 }
 
 
