@@ -13,8 +13,7 @@ import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { set } from "date-fns";
-import { auth,createReport, linkEventToUser, } from "@/lib/firebase";
-let globalID=1;
+import { auth,createReport, getNextEventId, linkEventToUser, } from "@/lib/firebase";
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
   const [showSOSCountdown, setShowSOSCountdown] = useState(false);
@@ -79,7 +78,7 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
 
   const handleEmergencySelect = async (type: EmergencyType) => {
     setShowEmergencySelector(false);
-    const eventId=globalID.toString();
+    const eventId = await getNextEventId();
     const eventData={
       id: eventId,
       timeStamp:new Date().toISOString(),
@@ -88,12 +87,11 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
         longitude: capturedLocation.longitude
       }:null,
       type:type,
-      severity:"SOS",
+      severity:"emergency",
       isActive: true
     }
     const currentUserPhone=auth.currentUser?.phoneNumber||"unknown";
     if (currentUserPhone !== "unknown"){
-      globalID++;
     await createReport(eventId, currentUserPhone, eventData);
     await linkEventToUser(currentUserPhone, eventId);
   }
@@ -104,7 +102,7 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
        title: "Emergency Alert Sent",
        description: `${type.charAt(0).toUpperCase() + type.slice(1)} emergency responders have been notified.`,
   });
-  navigate("/chat", { state: { location: capturedLocation, emergencyType: type,eventId:eventId } });
+  navigate(`/event/${eventId}/chat`, { state: { location: capturedLocation, emergencyType: type, eventId: eventId } });
   
   }
   const handleAllowLocation = () => {
