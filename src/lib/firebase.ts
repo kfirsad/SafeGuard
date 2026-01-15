@@ -1,10 +1,11 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion } from "firebase/firestore"; // Database
+import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion,addDoc, serverTimestamp,collection} from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
 import { get } from "http";
+import { add } from "date-fns";
 
 // Your NEW configuration
 const firebaseConfig = {
@@ -62,39 +63,60 @@ export async function findUser(phoneNumber){
   return docSnap.exists();
 }
 
-export async function addEmergencyEvent(phoneNumber,eventData){
+// export async function addEmergencyEvent(phoneNumber,eventData){
+//   const cleanedPhone = normalizePhoneNumber(phoneNumber);
+//   const userRef = doc(userDB, "report", cleanedPhone);
+//   try{
+//     await updateDoc(userRef, {
+//       Events:arrayUnion(eventData.id),
+//       lastActiveEvent: eventData.id,
+//       isOnActiveEvent: true
+//     });
+//     console.log("event successfully updated!");
+//   }catch(e){
+//     console.error("Error updating document: ", e);
+//   }
+// }
+
+export async function createReport(eventId, phoneNumber, eventData) {
   const cleanedPhone = normalizePhoneNumber(phoneNumber);
-  const userRef = doc(userDB, "users", cleanedPhone);
-  try{
-    await updateDoc(userRef, {
-      Events: arrayUnion(eventData),
-      lastActiveEvent: eventData,
-      isOnActiveEvent: true
-    });
-    console.log("event successfully updated!");
-  }catch(e){
-    console.error("Error updating document: ", e);
-  }
+
+  // create event doc
+  await setDoc(doc(userDB, "events", eventId), {
+    ...eventData,
+    userId: cleanedPhone,
+    createdAt: serverTimestamp(),
+  });
+
+  // create report doc
+  await setDoc(doc(userDB, "reports", eventId), {
+    userId: cleanedPhone,
+    status: "active",
+    type: eventData.type,
+    severity: eventData.severity,
+    location: eventData.location,
+    createdAt: serverTimestamp(),
+  });
+
+  await addDoc(collection(userDB, "reports", eventId, "messages"), {
+    text: "Emergency alert received. A responder will join shortly.",
+    sender: "system",
+    type: "text",
+    createdAt: serverTimestamp(),
+  });
 }
-export async function createChatSession(eventId, phoneNumber) {
-  const formattedPhone = normalizePhoneNumber(phoneNumber);
-  
-  try {
-    await setDoc(doc(userDB, "reports", eventId), {
-      createdAt: new Date().toISOString(),
-      userId: formattedPhone,
-      status: "active",
-      messages: [
-        {
-          id: "system_1",
-          text: "Emergency alert received. A responder will join shortly.",
-          sender: "system",
-          timestamp: new Date().toISOString()
-        }
-      ]
-    });
-    console.log(`Chat session created for event: ${eventId}`);
-  } catch (e) {
-    console.error("Error creating chat session: ", e);
-  }
+
+
+export async function linkEventToUser(phoneNumber, eventId) {
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
+
+  await setDoc(
+    doc(userDB, "users", cleanedPhone),
+    {
+      Events: arrayUnion(eventId),
+      lastActiveEvent: eventId,
+      isOnActiveEvent: true,
+    },
+    { merge: true }
+  );
 }

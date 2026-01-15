@@ -13,8 +13,8 @@ import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { set } from "date-fns";
-import { auth,addEmergencyEvent,createChatSession } from "@/lib/firebase";
-
+import { auth,createReport, linkEventToUser, } from "@/lib/firebase";
+let globalID=1;
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
   const [showSOSCountdown, setShowSOSCountdown] = useState(false);
@@ -24,47 +24,35 @@ const CitizenDashboard = () => {
 const [capturedLocation, setCapturedLocation] = useState<{latitude: number; longitude: number} | null>(null); const navigate = useNavigate();
   const { toast } = useToast();
   useEffect(() => {
-  if (!navigator.geolocation) {
-    setHasLocation(false);
-    setShowLocationPermission(true);
-    return;
-  }
-
-  if (!navigator.permissions) {
-    setShowLocationPermission(true);
-    return;
-  }
-
-  let permissionStatus: PermissionStatus | null = null;
-
-  navigator.permissions
-    .query({ name: "geolocation" })
-    .then((status) => {
-      permissionStatus = status;
-
-      const handleChange = () => {
-        if (status.state === "granted") {
-          setHasLocation(true);
-          setShowLocationPermission(false);
-        } else {
-          setHasLocation(false);
-          setShowLocationPermission(true);
-        }
-      };
-
-      handleChange();
-      status.onchange = handleChange;
-    })
-    .catch(() => {
+    if (!navigator.geolocation) {
+      setHasLocation(false);
       setShowLocationPermission(true);
-    });
-
-  return () => {
-    if (permissionStatus) {
-      permissionStatus.onchange = null;
+      return;
     }
-  };
-}, []);
+    const watchId = navigator.geolocation.watchPosition(
+      (position) => {
+        setHasLocation(true);
+        setShowLocationPermission(false);
+        
+        setCapturedLocation({
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude
+        });
+      },
+      (error) => {
+        console.error("Location error:", error);
+        setHasLocation(false);
+        if (error.code === error.PERMISSION_DENIED) {
+            setShowLocationPermission(true);
+        }
+      },
+      { 
+        enableHighAccuracy: true, 
+        maximumAge: 10000 
+      }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, []);
 
 
   const requestLocation = () => {
@@ -85,14 +73,13 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
   };
 
   const handleSOSSend = useCallback((location: GeolocationCoordinates | null) => {
-    setCapturedLocation(location);
     setShowSOSCountdown(false);
     setShowEmergencySelector(true);
   }, []);
 
   const handleEmergencySelect = async (type: EmergencyType) => {
     setShowEmergencySelector(false);
-    const eventId=crypto.randomUUID();
+    const eventId=globalID.toString();
     const eventData={
       id: eventId,
       timeStamp:new Date().toISOString(),
@@ -106,8 +93,9 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
     }
     const currentUserPhone=auth.currentUser?.phoneNumber||"unknown";
     if (currentUserPhone !== "unknown"){
-    await addEmergencyEvent(currentUserPhone,eventData);
-    await createChatSession(eventId,currentUserPhone);
+      globalID++;
+    await createReport(eventId, currentUserPhone, eventData);
+    await linkEventToUser(currentUserPhone, eventId);
   }
   else {
     console.warn("No user logged in,event not saved to DB")
