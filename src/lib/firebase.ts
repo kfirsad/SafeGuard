@@ -1,6 +1,6 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion,addDoc, serverTimestamp,collection} from "firebase/firestore"; // Database
+import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion,addDoc, serverTimestamp,collection,runTransaction} from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
@@ -25,6 +25,17 @@ export const db = getFirestore(app);
 export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+
+export async function getNextEventId() {
+  const counterRef = doc(userDB, "counters", "events");
+  return runTransaction(userDB, async (transaction) => {
+    const counterSnap = await transaction.get(counterRef);
+    const current = counterSnap.exists() ? counterSnap.data().current : 0;
+    const next = Number(current) + 1;
+    transaction.set(counterRef, { current: next }, { merge: true });
+    return next.toString();
+  });
+}
 
 function normalizePhoneNumber(phone) {
   let cleaned = phone.replace(/\D/g, ''); 

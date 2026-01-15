@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
 // Firebase Imports
-import { db, storage } from "@/lib/firebase"; 
+import { userDB, storage } from "@/lib/firebase"; 
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
 import { 
   collection, 
@@ -27,7 +27,7 @@ interface Message {
 }
 
 const ReportChat = () => {
-  const { reportId } = useParams();
+  const { eventId } = useParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   
@@ -54,8 +54,8 @@ const ReportChat = () => {
 
   // Fetch Report Data
   useEffect(() => {
-    if (!reportId) return;
-    const unsubscribe = onSnapshot(doc(db, "reports", reportId), (doc) => {
+    if (!eventId) return;
+    const unsubscribe = onSnapshot(doc(userDB, "events", eventId), (doc) => {
       if (doc.exists()) {
         const data = doc.data();
         setIsClosed(data.status === "closed");
@@ -63,26 +63,26 @@ const ReportChat = () => {
       }
     });
     return () => unsubscribe();
-  }, [reportId]);
+  }, [eventId]);
 
   // Listen to Messages
   useEffect(() => {
-    if (!reportId) return;
-    const q = query(collection(db, "reports", reportId, "messages"), orderBy("createdAt", "asc"));
+    if (!eventId) return;
+    const q = query(collection(userDB, "events", eventId, "messages"), orderBy("createdAt", "asc"));
     const unsubscribe = onSnapshot(q, (snapshot) => {
       setMessages(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Message[]);
     });
     return () => unsubscribe();
-  }, [reportId]);
+  }, [eventId]);
 
   // --- 1. HANDLE IMAGE UPLOAD ---
   const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (!file || !reportId) return;
+    if (!file || !eventId) return;
 
     setIsUploading(true);
     try {
-      const storageRef = ref(storage, `reports/${reportId}/${Date.now()}_${file.name}`);
+      const storageRef = ref(storage, `events/${eventId}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
       const downloadURL = await getDownloadURL(storageRef);
       
@@ -111,7 +111,7 @@ const ReportChat = () => {
           const blob = new Blob(chunks, { type: "audio/webm" });
           
           // Upload to Firebase
-          const storageRef = ref(storage, `reports/${reportId}/voice_${Date.now()}.webm`);
+          const storageRef = ref(storage, `events/${eventId}/voice_${Date.now()}.webm`);
           await uploadBytes(storageRef, blob);
           const downloadURL = await getDownloadURL(storageRef);
 
@@ -144,8 +144,8 @@ const ReportChat = () => {
 
   // Shared Send Function
   const sendMessage = async (content: string, type: "text" | "image" | "voice") => {
-    if (!reportId) return;
-    await addDoc(collection(db, "reports", reportId, "messages"), {
+    if (!eventId) return;
+    await addDoc(collection(userDB, "events", eventId, "messages"), {
       text: content,
       sender: isDevResponder ? "responder" : "user",
       createdAt: serverTimestamp(),
@@ -174,7 +174,7 @@ const ReportChat = () => {
             <ArrowLeft className="w-5 h-5" />
           </Button>
           <div className="flex-1">
-            <h1 className="text-base font-semibold text-foreground">Report #{reportId}</h1>
+            <h1 className="text-base font-semibold text-foreground">Event #{eventId}</h1>
           </div>
         </div>
       </div>
