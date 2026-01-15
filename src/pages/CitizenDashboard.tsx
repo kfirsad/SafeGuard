@@ -12,6 +12,7 @@ import LocationPermissionDialog from "@/components/LocationPermissionDialog";
 import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
+import { set } from "date-fns";
 
 const CitizenDashboard = () => {
   const [showEmergencySelector, setShowEmergencySelector] = useState(false);
@@ -22,24 +23,62 @@ const CitizenDashboard = () => {
   const [capturedLocation, setCapturedLocation] = useState<GeolocationCoordinates | null>(null);
   const navigate = useNavigate();
   const { toast } = useToast();
-
   useEffect(() => {
-    // Check location permission on mount
-    if (navigator.geolocation) {
-      navigator.permissions?.query({ name: "geolocation" }).then((result) => {
-        if (result.state === "granted") {
+  if (!navigator.geolocation) {
+    setHasLocation(false);
+    setShowLocationPermission(true);
+    return;
+  }
+
+  if (!navigator.permissions) {
+    setShowLocationPermission(true);
+    return;
+  }
+
+  let permissionStatus: PermissionStatus | null = null;
+
+  navigator.permissions
+    .query({ name: "geolocation" })
+    .then((status) => {
+      permissionStatus = status;
+
+      const handleChange = () => {
+        if (status.state === "granted") {
           setHasLocation(true);
-        } else if (result.state === "prompt") {
-          setShowLocationPermission(true);
+          setShowLocationPermission(false);
         } else {
           setHasLocation(false);
+          setShowLocationPermission(true);
         }
-      }).catch(() => {
-        // Fallback for browsers that don't support permissions API
-        setShowLocationPermission(true);
-      });
+      };
+
+      handleChange();
+      status.onchange = handleChange;
+    })
+    .catch(() => {
+      setShowLocationPermission(true);
+    });
+
+  return () => {
+    if (permissionStatus) {
+      permissionStatus.onchange = null;
     }
-  }, []);
+  };
+}, []);
+
+
+  const requestLocation = () => {
+  navigator.geolocation.getCurrentPosition(
+    () => {
+      setHasLocation(true);
+      setShowLocationPermission(false);
+    },
+    () => {
+      setHasLocation(false);
+      setShowLocationPermission(true);
+    }
+  );
+};
 
   const handleSOSPress = () => {
     setShowSOSCountdown(true);
