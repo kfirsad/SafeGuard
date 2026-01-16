@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState,useRef} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings } from "lucide-react";
@@ -13,7 +13,9 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
-} from "firebase/auth";
+  setPersistence,
+  browserSessionPersistence
+} from "firebase/auth"; 
 import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
 
@@ -27,6 +29,7 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
+  setPersistence(auth, browserSessionPersistence)
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
@@ -38,19 +41,27 @@ const Auth = () => {
   const [isNewUser] = useState(true);
   const navigate = useNavigate();
   const { toast } = useToast();
- useEffect(() => {
-  const w = window as any;
-
-  if (w.recaptchaVerifier) {
-    w.recaptchaVerifier.clear();
-    delete w.recaptchaVerifier;
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+useEffect(() => {
+  if (recaptchaVerifierRef.current) {
+    recaptchaVerifierRef.current.clear();
+    recaptchaVerifierRef.current = null;
   }
 
-  w.recaptchaVerifier = new RecaptchaVerifier(
-    auth,
-    "recaptcha-container",
+  const verifier = new RecaptchaVerifier(
+    auth, 
+    "recaptcha-container", 
     { size: "invisible" }
   );
+
+  recaptchaVerifierRef.current = verifier;
+
+  return () => {
+    if (recaptchaVerifierRef.current) {
+      recaptchaVerifierRef.current.clear();
+      recaptchaVerifierRef.current = null;
+    }
+  };
 }, []);
 
   const handleRoleSelect = (selectedRole: UserRole) => {
@@ -64,9 +75,8 @@ const Auth = () => {
     if (phone.length >= 10) {
       if (role === "citizen") {
         try{
-         
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
-          const result=await signInWithPhoneNumber(auth,normilizedPhone,(window as any).recaptchaVerifier);
+          const result=await signInWithPhoneNumber(auth,normilizedPhone,recaptchaVerifierRef.current!);
           setConfirmation(result);
           setStep("otp");
           toast({
