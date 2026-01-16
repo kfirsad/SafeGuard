@@ -1,10 +1,11 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
-import { getFirestore,doc,setDoc,getDoc } from "firebase/firestore"; // Database
+import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion,addDoc, serverTimestamp,collection,runTransaction} from "firebase/firestore"; // Database
 import { getAuth } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
 import { get } from "http";
+import { add } from "date-fns";
 
 // Your NEW configuration
 const firebaseConfig = {
@@ -25,8 +26,27 @@ export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
 export const storage = getStorage(app);
 
+export async function getNextEventId() {
+  const counterRef = doc(userDB, "counters", "events");
+  return runTransaction(userDB, async (transaction) => {
+    const counterSnap = await transaction.get(counterRef);
+    const current = counterSnap.exists() ? counterSnap.data().current : 0;
+    const next = Number(current) + 1;
+    transaction.set(counterRef, { current: next }, { merge: true });
+    return next.toString();
+  });
+}
+
+function normalizePhoneNumber(phone) {
+  let cleaned = phone.replace(/\D/g, ''); 
+  
+  if (cleaned.startsWith('972')) {
+    cleaned = '0' + cleaned.substring(3);
+  }
+  return cleaned;
+}
 export async function addUser(phoneNumber){
-  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
   try{
     await setDoc(doc(userDB, "users", cleanedPhone), 
     { 
@@ -48,8 +68,73 @@ export async function addUser(phoneNumber){
   }
 }
 export async function findUser(phoneNumber){
-  const cleanedPhone = phoneNumber.replace(/\D/g, '');
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
   const docRef = doc(userDB, "users", cleanedPhone);
   const docSnap = await getDoc(docRef);
   return docSnap.exists();
+}
+
+// export async function addEmergencyEvent(phoneNumber,eventData){
+//   const cleanedPhone = normalizePhoneNumber(phoneNumber);
+//   const userRef = doc(userDB, "report", cleanedPhone);
+//   try{
+//     await updateDoc(userRef, {
+//       Events:arrayUnion(eventData.id),
+//       lastActiveEvent: eventData.id,
+//       isOnActiveEvent: true
+//     });
+//     console.log("event successfully updated!");
+//   }catch(e){
+//     console.error("Error updating document: ", e);
+//   }
+// }
+
+export async function createReport(eventId, phoneNumber, eventData) {
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
+
+  // create event doc
+  await setDoc(doc(userDB, "events", eventId), {
+    ...eventData,
+    userId: cleanedPhone,
+    createdAt: serverTimestamp(),
+  });
+
+  // create report doc
+  await setDoc(doc(userDB, "reports", eventId), {
+    userId: cleanedPhone,
+    status: "active",
+    type: eventData.type,
+    severity: eventData.severity,
+    location: eventData.location,
+    createdAt: serverTimestamp(),
+  });
+
+  await addDoc(collection(userDB, "reports", eventId, "messages"), {
+    text: "Emergency alert received. A responder will join shortly.",
+    sender: "system",
+    type: "text",
+    createdAt: serverTimestamp(),
+  });
+
+  await addDoc(collection(userDB, "events", eventId, "messages"), {
+    text: "Emergency alert received. A responder will join shortly.",
+    sender: "system",
+    type: "text",
+    createdAt: serverTimestamp(),
+  });
+}
+
+
+export async function linkEventToUser(phoneNumber, eventId) {
+  const cleanedPhone = normalizePhoneNumber(phoneNumber);
+
+  await setDoc(
+    doc(userDB, "users", cleanedPhone),
+    {
+      Events: arrayUnion(eventId),
+      lastActiveEvent: eventId,
+      isOnActiveEvent: true,
+    },
+    { merge: true }
+  );
 }
