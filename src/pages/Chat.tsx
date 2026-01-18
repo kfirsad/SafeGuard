@@ -1,10 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useLocation } from "react-router-dom";
-import { 
-  ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, X, 
-  Globe, Loader2, Volume2, Square 
-} from "lucide-react";
+import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import BottomNav from "@/components/BottomNav";
@@ -20,42 +17,47 @@ import {
 interface Message {
   id: string;
   text: string;
-  translatedText?: string;
   sender: "user" | "responder";
   timestamp: string;
   type: "text" | "image" | "voice";
 }
 
-const SUPPORTED_LANGUAGES = {
-  es: { name: "Spanish", placeholder: "Escribe un mensaje..." },
-  fr: { name: "French", placeholder: "Écrire un message..." },
-  de: { name: "German", placeholder: "Nachricht schreiben..." },
-  it: { name: "Italian", placeholder: "Scrivi un messaggio..." },
-  ru: { name: "Russian", placeholder: "Введите сообщение..." },
-  ja: { name: "Japanese", placeholder: "メッセージを入力..." },
-  en: { name: "English", placeholder: "Type a message..." },
-};
+const mockMessages: Message[] = [
+  {
+    id: "1",
+    text: "Emergency services have been dispatched to your location.",
+    sender: "responder",
+    timestamp: "2:30 PM",
+    type: "text",
+  },
+  {
+    id: "2",
+    text: "Please stay on the line. Help is on the way.",
+    sender: "responder",
+    timestamp: "2:31 PM",
+    type: "text",
+  },
+  {
+    id: "3",
+    text: "Thank you, I'm at the main entrance of the building.",
+    sender: "user",
+    timestamp: "2:32 PM",
+    type: "text",
+  },
+  {
+    id: "4",
+    text: "Understood. The ambulance should arrive in approximately 5 minutes.",
+    sender: "responder",
+    timestamp: "2:33 PM",
+    type: "text",
+  },
+];
 
 const Chat = () => {
-  // --- AUTOMATIC LANGUAGE DETECTION ---
-  const detectLanguage = (): keyof typeof SUPPORTED_LANGUAGES => {
-    const browserLang = navigator.language.split('-')[0]; 
-    if (Object.keys(SUPPORTED_LANGUAGES).includes(browserLang)) {
-      return browserLang as keyof typeof SUPPORTED_LANGUAGES;
-    }
-    return 'en';
-  };
-
-  const [messages, setMessages] = useState<Message[]>([]);
+  const [messages, setMessages] = useState<Message[]>(mockMessages);
   const [newMessage, setNewMessage] = useState("");
   const [isRecording, setIsRecording] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
   const [showCancelDialog, setShowCancelDialog] = useState(false);
-  
-  // TTS State
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(detectLanguage); 
-
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -72,64 +74,12 @@ const Chat = () => {
     scrollToBottom();
   }, [messages]);
 
-  // Stop speaking when component unmounts
-  useEffect(() => {
-    return () => {
-      window.speechSynthesis.cancel();
-    };
-  }, []);
-
-  // --- FREE TRANSLATION API (MyMemory) ---
-  const translateText = async (text: string, targetLang: string = 'en'): Promise<string | undefined> => {
-    if (userLanguage === 'en') return undefined;
-    
-    try {
-      const langPair = `${userLanguage}|${targetLang}`;
-      const url = `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${langPair}`;
-
-      const response = await fetch(url);
-      const data = await response.json();
-
-      if (data.responseStatus !== 200) return "Translation unavailable";
-      return data.responseData.translatedText;
-    } catch (error) {
-      console.error("Translation failed:", error);
-      return "Translation failed";
-    }
-  };
-
-  // --- TEXT TO SPEECH (Native Browser API) ---
-  const handleSpeak = (text: string, id: string, language: string) => {
-    if (speakingMessageId === id) {
-      window.speechSynthesis.cancel();
-      setSpeakingMessageId(null);
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-    setSpeakingMessageId(id);
-
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language;
-    utterance.rate = 0.9;
-    
-    utterance.onend = () => setSpeakingMessageId(null);
-    utterance.onerror = () => setSpeakingMessageId(null);
-
-    window.speechSynthesis.speak(utterance);
-  };
-
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!newMessage.trim()) return;
-
-    setIsTranslating(true); 
-
-    const translatedResult = await translateText(newMessage, 'en');
 
     const message: Message = {
       id: Date.now().toString(),
       text: newMessage,
-      translatedText: translatedResult, 
       sender: "user",
       timestamp: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
       type: "text",
@@ -137,7 +87,6 @@ const Chat = () => {
 
     setMessages([...messages, message]);
     setNewMessage("");
-    setIsTranslating(false); 
   };
 
   const handleCancelReport = () => {
@@ -165,12 +114,6 @@ const Chat = () => {
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 rounded-full bg-success" />
               <span className="text-xs text-muted-foreground">Online</span>
-              
-              {/* Language Indicator */}
-              <div className="flex items-center gap-1 text-xs text-muted-foreground ml-2 border-l pl-2">
-                 <Globe className="w-3 h-3" /> 
-                 <span>Detected: {SUPPORTED_LANGUAGES[userLanguage].name}</span>
-              </div>
             </div>
           </div>
 
@@ -218,37 +161,7 @@ const Chat = () => {
                   : "bg-secondary text-secondary-foreground rounded-bl-md"
               }`}
             >
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-sm">{message.text}</p>
-                
-                {/* Speaker Button */}
-                <button 
-                  onClick={() => handleSpeak(
-                    message.text, 
-                    message.id, 
-                    message.sender === "user" ? userLanguage : 'en'
-                  )}
-                  className={`p-1 rounded-full shrink-0 transition-opacity ${
-                    speakingMessageId === message.id ? "opacity-100" : "opacity-50 hover:opacity-100"
-                  }`}
-                >
-                  {speakingMessageId === message.id ? (
-                    <Square className="w-3 h-3 fill-current" />
-                  ) : (
-                    <Volume2 className="w-3 h-3" />
-                  )}
-                </button>
-              </div>
-
-              {/* Show Translated Text */}
-              {message.translatedText && (
-                <div className={`mt-2 pt-2 border-t text-xs italic ${
-                   message.sender === "user" ? "border-primary-foreground/20 text-primary-foreground/80" : "border-foreground/10 text-muted-foreground"
-                }`}>
-                  {message.translatedText}
-                </div>
-              )}
-
+              <p className="text-sm">{message.text}</p>
               <p
                 className={`text-xs mt-1 ${
                   message.sender === "user"
@@ -273,22 +186,17 @@ const Chat = () => {
 
           <div className="flex-1 relative">
             <Input
-              placeholder={SUPPORTED_LANGUAGES[userLanguage].placeholder}
+              placeholder="Type a message..."
               value={newMessage}
               onChange={(e) => setNewMessage(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && !isTranslating && handleSend()}
-              disabled={isTranslating}
+              onKeyDown={(e) => e.key === "Enter" && handleSend()}
               className="pr-12 bg-secondary border-border"
             />
           </div>
 
           {newMessage.trim() ? (
-            <Button variant="emergency" size="icon" onClick={handleSend} disabled={isTranslating}>
-              {isTranslating ? (
-                <Loader2 className="w-5 h-5 animate-spin" />
-              ) : (
-                <Send className="w-5 h-5" />
-              )}
+            <Button variant="emergency" size="icon" onClick={handleSend}>
+              <Send className="w-5 h-5" />
             </Button>
           ) : (
             <Button
