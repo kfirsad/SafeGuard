@@ -29,6 +29,9 @@ const CreateReport = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
+  const [activePicker, setActivePicker] = useState<"image" | "video" | null>(null);
+  const isMobile = typeof window !== "undefined" && window.matchMedia("(max-width: 640px)").matches;
+  const [showVideoPreviews, setShowVideoPreviews] = useState(!isMobile);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const imageCameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -327,7 +330,7 @@ const CreateReport = () => {
             <Button
               variant="outline"
               className="flex-1 h-20 flex-col gap-2"
-              onClick={() => imageInputRef.current?.click()}
+              onClick={() => setActivePicker("image")}
               disabled={isSubmitting}
             >
               <Camera className="w-6 h-6" />
@@ -336,7 +339,7 @@ const CreateReport = () => {
             <Button
               variant="outline"
               className="flex-1 h-20 flex-col gap-2"
-              onClick={() => videoInputRef.current?.click()}
+              onClick={() => setActivePicker("video")}
               disabled={isSubmitting}
             >
               <Video className="w-6 h-6" />
@@ -352,24 +355,54 @@ const CreateReport = () => {
               <span className="text-xs">{isRecordingAudio ? "Stop" : "Audio"}</span>
             </Button>
           </div>
-          <div className="mt-2 grid grid-cols-2 gap-3 sm:hidden">
-            <Button
-              variant="secondary"
-              className="h-12"
-              onClick={() => imageCameraInputRef.current?.click()}
-              disabled={isSubmitting}
-            >
-              Take Photo
-            </Button>
-            <Button
-              variant="secondary"
-              className="h-12"
-              onClick={() => videoCameraInputRef.current?.click()}
-              disabled={isSubmitting}
-            >
-              Record Video
-            </Button>
-          </div>
+          {activePicker && (
+            <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
+              <div className="w-full max-w-sm rounded-2xl bg-card p-4 shadow-xl">
+                <div className="mb-3 text-sm font-medium text-foreground">
+                  {activePicker === "image" ? "Add Photo" : "Add Video"}
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="secondary"
+                    className="h-12 sm:hidden"
+                    onClick={() => {
+                      if (activePicker === "image") {
+                        imageCameraInputRef.current?.click();
+                      } else {
+                        videoCameraInputRef.current?.click();
+                      }
+                      setActivePicker(null);
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    {activePicker === "image" ? "Camera" : "Record"}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="h-12"
+                    onClick={() => {
+                      if (activePicker === "image") {
+                        imageInputRef.current?.click();
+                      } else {
+                        videoInputRef.current?.click();
+                      }
+                      setActivePicker(null);
+                    }}
+                    disabled={isSubmitting}
+                  >
+                    Library
+                  </Button>
+                </div>
+                <Button
+                  variant="ghost"
+                  className="mt-3 w-full"
+                  onClick={() => setActivePicker(null)}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
           {(images.length > 0 || videos.length > 0 || audio.length > 0) && (
             <div className="mt-3 space-y-4 text-xs text-muted-foreground">
               {images.length > 0 && (
@@ -391,17 +424,27 @@ const CreateReport = () => {
               {videos.length > 0 && (
                 <div>
                   <div className="mb-2 font-medium text-foreground">Videos ({videos.length})</div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {videoPreviews.map((item) => (
-                      <div key={item.url} className="overflow-hidden rounded-md border border-border bg-secondary/30">
-                        <video
-                          src={item.url}
-                          controls
-                          className="w-full aspect-video"
-                        />
-                      </div>
-                    ))}
-                  </div>
+                  {!showVideoPreviews ? (
+                    <Button
+                      variant="secondary"
+                      className="h-10 w-full"
+                      onClick={() => setShowVideoPreviews(true)}
+                    >
+                      Preview videos
+                    </Button>
+                  ) : (
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {videoPreviews.map((item) => (
+                        <div key={item.url} className="overflow-hidden rounded-md border border-border bg-secondary/30">
+                          <video
+                            src={item.url}
+                            controls
+                            className="w-full aspect-video"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
               {audio.length > 0 && (
