@@ -483,5 +483,5 @@ const CreateReport = () => {
     </div>
   );
 };
-
+//default export
 export default CreateReport;
