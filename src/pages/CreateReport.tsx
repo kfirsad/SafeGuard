@@ -30,7 +30,9 @@ const CreateReport = () => {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const imageCameraInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
+  const videoCameraInputRef = useRef<HTMLInputElement>(null);
   const audioInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const navigate = useNavigate();
@@ -275,10 +277,34 @@ const CreateReport = () => {
               }}
             />
             <input
+              ref={imageCameraInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                const next = Array.from(e.target.files || []);
+                if (!next.length) return;
+                setImages((prev) => [...prev, ...next]);
+              }}
+            />
+            <input
               ref={videoInputRef}
               type="file"
               accept="video/*"
               multiple
+              className="hidden"
+              onChange={(e) => {
+                const next = Array.from(e.target.files || []);
+                if (!next.length) return;
+                setVideos((prev) => [...prev, ...next]);
+              }}
+            />
+            <input
+              ref={videoCameraInputRef}
+              type="file"
+              accept="video/*"
+              capture="environment"
               className="hidden"
               onChange={(e) => {
                 const next = Array.from(e.target.files || []);
@@ -324,6 +350,24 @@ const CreateReport = () => {
             >
               <Mic className="w-6 h-6" />
               <span className="text-xs">{isRecordingAudio ? "Stop" : "Audio"}</span>
+            </Button>
+          </div>
+          <div className="mt-2 grid grid-cols-2 gap-3 sm:hidden">
+            <Button
+              variant="secondary"
+              className="h-12"
+              onClick={() => imageCameraInputRef.current?.click()}
+              disabled={isSubmitting}
+            >
+              Take Photo
+            </Button>
+            <Button
+              variant="secondary"
+              className="h-12"
+              onClick={() => videoCameraInputRef.current?.click()}
+              disabled={isSubmitting}
+            >
+              Record Video
             </Button>
           </div>
           {(images.length > 0 || videos.length > 0 || audio.length > 0) && (
