@@ -1,5 +1,5 @@
 import bcrypt from "bcryptjs";
-//to simulate a remote database of responders
+
 
 type WorkerRecord = {
   phone: string;
