@@ -4,15 +4,6 @@
   padding: 2rem;
   text-align: center;
 }
-/* FIX Google Maps marker visibility */
-.gm-style img {
-  max-width: none !important;
-}
-.gm-style img {
-  max-width: none !important;
-  height: auto;
-}
-
 
 .logo {
   height: 6em;

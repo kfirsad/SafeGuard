@@ -1,82 +1,58 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image, MoreVertical, Phone, Video, Lock, Globe } from "lucide-react";
+import { ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, Loader2 } from "lucide-react"; // Added StopCircle
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+
+// Firebase Imports
+import { userDB, storage } from "@/lib/firebase"; 
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
+import { 
+  collection, 
+  query, 
+  orderBy, 
+  onSnapshot, 
+  addDoc, 
+  serverTimestamp, 
+  doc
+} from "firebase/firestore";
 
 interface Message {
   id: string;
   text: string;
-  translatedText?: string; // Added to store the translated version
   sender: "user" | "responder";
-  timestamp: string;
+  timestamp: any; 
   type: "text" | "image" | "voice";
-}
-
-// MOCKED DATA: Simulating a Spanish speaker ("User") communicating with English services
-const mockMessages: Message[] = [
-  {
-    id: "1",
-    text: "Emergency services have been dispatched to your location.",
-    sender: "responder",
-    timestamp: "2:30 PM",
-    type: "text",
-  },
-  {
-    id: "2",
-    text: "Please stay on the line. Help is on the way.",
-    sender: "responder",
-    timestamp: "2:31 PM",
-    type: "text",
-  },
-  {
-    id: "3",
-    text: "Gracias, estoy en la entrada principal del edificio.", // Spanish input
-    translatedText: "Thank you, I'm at the main entrance of the building.", // English output
-    sender: "user",
-    timestamp: "2:32 PM",
-    type: "text",
-  },
-  {
-    id: "4",
-    text: "Understood. The ambulance should arrive in approximately 5 minutes.",
-    sender: "responder",
-    timestamp: "2:33 PM",
-    type: "text",
-  },
-];
-
-interface ReportChatProps {
-  isClosed?: boolean;
-  summary?: string;
 }
 
 const ReportChat = () => {
   const { eventId } = useParams();
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
   
-  // SIMULATION STATE: We assume the device is set to Spanish ('es')
-  const [deviceLanguage, setDeviceLanguage] = useState("es"); 
+  // Media States
+  const [isRecording, setIsRecording] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  
+  // Dev Mode State
+  const [isDevResponder, setIsDevResponder] = useState(false); 
+  
+  // Report Status State
+  const [isClosed, setIsClosed] = useState(false);
+  const [reportSummary, setReportSummary] = useState<string | null>(null);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-
-  const isClosed = reportId === "1"; 
-  const summary = isClosed ? "Emergency resolved. Patient was stable upon arrival. Transported to City Hospital for further evaluation. No additional units required." : null;
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   };
+  useEffect(() => scrollToBottom(), [messages]);
 
+  // Fetch Report Data
   useEffect(() => {
     if (!eventId) return;
     const unsubscribe = onSnapshot(doc(userDB, "events", eventId), (doc) => {
@@ -89,6 +65,7 @@ const ReportChat = () => {
     return () => unsubscribe();
   }, [eventId]);
 
+  // Listen to Messages
   useEffect(() => {
     if (!eventId) return;
     const q = query(collection(userDB, "events", eventId, "messages"), orderBy("createdAt", "asc"));
@@ -103,32 +80,7 @@ const ReportChat = () => {
     const file = e.target.files?.[0];
     if (!file || !eventId) return;
 
-      recognitionInstance.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error("Speech error", event.error);
-        setIsListening(false);
-      };
-      recognitionInstance.onend = () => setIsListening(false);
-      setRecognition(recognitionInstance);
-    }
-  }, [languageCode]);
-
-  const toggleListening = useCallback(() => {
-    if (!recognition) return;
-    if (isListening) {
-      recognition.stop();
-      setIsListening(false);
-    } else {
-      recognition.start();
-      setIsListening(true);
-    }
-  }, [isListening, recognition]);
-
-  return { isListening, toggleListening, hasSupport: !!recognition };
-};
-
-// --- 4. TRANSLATION API ---
-const translateText = async (text: string, sourceLang: string, targetLang: string) => {
-    if (sourceLang === targetLang) return null;
+    setIsUploading(true);
     try {
       const storageRef = ref(storage, `events/${eventId}/${Date.now()}_${file.name}`);
       await uploadBytes(storageRef, file);
@@ -136,28 +88,21 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
       
       await sendMessage(downloadURL, "image");
     } catch (error) {
-        console.error("Translation failed", error);
-        return null;
+      console.error("Upload failed:", error);
+      alert("Failed to upload image.");
+    } finally {
+      setIsUploading(false);
     }
-};
+  };
 
-// --- 5. COMPONENT ---
+  // --- 2. HANDLE VOICE RECORDING ---
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
 
-const ReportChat = () => {
-  const { reportId } = useParams();
-  const navigate = useNavigate();
-  
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [newMessage, setNewMessage] = useState("");
-  const [isClosed, setIsClosed] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
-  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  
-  // SIMULATION STATE (Dual Languages)
-  const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
-  const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); // Default Responder is English
-  const [isResponderMode, setIsResponderMode] = useState(false);
+      recorder.ondataavailable = (e) => chunks.push(e.data);
 
       recorder.onstop = async () => {
         setIsUploading(true);
@@ -181,52 +126,28 @@ const ReportChat = () => {
         }
       };
 
-  // --- STT Integration ---
-  const handleDictationResult = (text: string) => {
-    setNewMessage(prev => prev.endsWith(text) ? prev : text);
-  };
-  // Dynamic dictation language based on who is "typing"
-  const currentDictationLang = isResponderMode ? responderLanguage : userLanguage;
-  const { isListening: isDictating, toggleListening: toggleDictation, hasSupport: hasDictationSupport } = useSpeechRecognition(handleDictationResult, currentDictationLang);
-
-  // --- TTS Handler ---
-  const handleSpeak = (text: string, id: string, language: string) => {
-    if (speakingMessageId === id) {
-        window.speechSynthesis.cancel();
-        setSpeakingMessageId(null);
-        return;
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setIsRecording(true);
+    } catch (err) {
+      console.error("Microphone error:", err);
+      alert("Could not access microphone. Please check permissions.");
     }
-    window.speechSynthesis.cancel();
-    setSpeakingMessageId(id);
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = language;
-    utterance.onend = () => setSpeakingMessageId(null);
-    window.speechSynthesis.speak(utterance);
   };
 
-  // --- Firebase Listeners ---
-  useEffect(() => {
-    if (!reportId) return;
-    const unsubReport = onSnapshot(doc(db, "reports", reportId), (doc) => {
-        if (doc.exists()) setIsClosed(doc.data().status === "closed");
-    });
-    const q = query(collection(db, "reports", reportId, "messages"), orderBy("createdAt", "asc"));
-    const unsubMessages = onSnapshot(q, (snapshot) => {
-        setMessages(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message)));
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-    });
-    return () => { unsubReport(); unsubMessages(); };
-  }, [reportId]);
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop(); // This triggers the 'onstop' event above
+      setIsRecording(false);
+    }
+  };
 
-
-  // --- SEND HANDLERS ---
+  // Shared Send Function
   const sendMessage = async (content: string, type: "text" | "image" | "voice") => {
     if (!eventId) return;
     await addDoc(collection(userDB, "events", eventId, "messages"), {
       text: content,
-      translation: finalTranslation,
-      language: finalLang, // We store the language the message was written in
-      sender: isResponderMode ? "responder" : "user",
+      sender: isDevResponder ? "responder" : "user",
       createdAt: serverTimestamp(),
       type: type,
     });
@@ -234,148 +155,65 @@ const ReportChat = () => {
 
   const handleSendText = async () => {
     if (!newMessage.trim() || isClosed) return;
-    const msg = newMessage;
+    await sendMessage(newMessage, "text");
     setNewMessage("");
-    await sendMessage(msg, "text");
   };
 
-  // --- MEDIA HANDLERS ---
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !reportId) return;
-    setIsUploading(true);
-    try {
-        const storageRef = ref(storage, `reports/${reportId}/${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(storageRef);
-        await sendMessage(url, "image");
-    } catch(e) { console.error(e); } finally { setIsUploading(false); }
-  };
-
-  const startRecordingAudio = async () => {
-    try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const recorder = new MediaRecorder(stream);
-        const chunks: BlobPart[] = [];
-        recorder.ondataavailable = e => chunks.push(e.data);
-        recorder.onstop = async () => {
-            setIsUploading(true);
-            const blob = new Blob(chunks, { type: "audio/webm" });
-            const storageRef = ref(storage, `reports/${reportId}/voice_${Date.now()}.webm`);
-            await uploadBytes(storageRef, blob);
-            const url = await getDownloadURL(storageRef);
-            await sendMessage(url, "voice");
-            setIsUploading(false);
-            stream.getTracks().forEach(t => t.stop());
-        };
-        recorder.start();
-        mediaRecorderRef.current = recorder;
-        setIsRecordingAudio(true);
-    } catch(e) { alert("Microphone blocked"); }
-  };
-
-  const stopRecordingAudio = () => {
-    if (mediaRecorderRef.current && isRecordingAudio) {
-        mediaRecorderRef.current.stop();
-        setIsRecordingAudio(false);
-    }
+  const formatTime = (timestamp: any) => {
+    if (!timestamp) return "Sending...";
+    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col relative">
+    <div className="min-h-screen bg-background flex flex-col">
       {/* Header */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-3 px-4 py-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          
           <div className="flex-1">
             <h1 className="text-base font-semibold text-foreground">Event #{eventId}</h1>
-            <h1 className="text-base font-semibold text-foreground">
-              Report #{reportId}
-            </h1>
-            <div className="flex items-center gap-2">
-              {isClosed ? (
-                <>
-                  <Lock className="w-3 h-3 text-muted-foreground" />
-                  <span className="text-xs text-muted-foreground">Closed</span>
-                </>
-              ) : (
-                <>
-                  <div className="w-2 h-2 rounded-full bg-success" />
-                  <span className="text-xs text-muted-foreground">Active</span>
-                </>
-              )}
-               {/* Language Indicator for Demo */}
-               <span className="text-xs text-muted-foreground ml-2 border-l pl-2 flex items-center gap-1">
-                 <Globe className="w-3 h-3" /> {deviceLanguage.toUpperCase()} Mode
-               </span>
-            </div>
           </div>
-
-          {!isClosed && (
-            <div className="flex items-center gap-1">
-              <Button variant="ghost" size="icon">
-                <Phone className="w-5 h-5" />
-              </Button>
-              <Button variant="ghost" size="icon">
-                <Video className="w-5 h-5" />
-              </Button>
-              <Button variant="ghost" size="icon">
-                <MoreVertical className="w-5 h-5" />
-              </Button>
-            </div>
-          )}
         </div>
       </div>
 
-      {/* Summary for closed reports */}
-      {isClosed && summary && (
-        <div className="p-4 bg-secondary/50 border-b border-border">
-          <p className="text-sm font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
-            Case Summary
-          </p>
-          <p className="text-sm text-foreground">{summary}</p>
-        </div>
-      )}
-
-      {/* Messages */}
+      {/* Messages Area */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((message, index) => (
+        {messages.map((message) => (
           <motion.div
             key={message.id}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: index * 0.05 }}
             className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 ${
+              className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
                 message.sender === "user"
                   ? "bg-primary text-primary-foreground rounded-br-md"
                   : "bg-secondary text-secondary-foreground rounded-bl-md"
               }`}
             >
-              <p className="text-sm">{message.text}</p>
+              {/* --- DYNAMIC CONTENT RENDERING --- */}
+              {message.type === "text" && <p className="text-sm">{message.text}</p>}
               
-              {/* Show Translated Text if it exists */}
-              {message.translatedText && (
-                <div className={`mt-2 pt-2 border-t text-xs italic ${
-                   message.sender === "user" ? "border-primary-foreground/20 text-primary-foreground/80" : "border-foreground/10 text-muted-foreground"
-                }`}>
-                  {message.translatedText}
+              {message.type === "image" && (
+                <img 
+                  src={message.text} 
+                  alt="Sent image" 
+                  className="rounded-lg max-h-60 w-auto object-cover border border-white/20" 
+                />
+              )}
+
+              {message.type === "voice" && (
+                <div className="flex items-center gap-2 min-w-[200px]">
+                  <audio controls src={message.text} className="h-8 w-full max-w-[250px]" />
                 </div>
               )}
 
-              <p
-                className={`text-xs mt-1 ${
-                  message.sender === "user"
-                    ? "text-primary-foreground/70"
-                    : "text-muted-foreground"
-                }`}
-              >
-                {message.timestamp}
+              <p className={`text-[10px] mt-1 text-right ${message.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
+                {formatTime(message.timestamp)}
               </p>
             </div>
           </motion.div>
@@ -383,104 +221,83 @@ const ReportChat = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input - only show if not closed */}
+      {/* Input Area */}
       {!isClosed ? (
-        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4">
+        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4 pb-8 md:pb-4">
+          
+          {/* Dev Mode Toggle */}
+          <div className="flex items-center gap-2 mb-3 justify-center bg-secondary/30 p-2 rounded-lg w-fit mx-auto">
+            <input 
+              type="checkbox" 
+              checked={isDevResponder} 
+              onChange={(e) => setIsDevResponder(e.target.checked)}
+              id="dev-toggle"
+              className="accent-primary"
+            />
+            <label htmlFor="dev-toggle" className="text-xs font-medium text-muted-foreground cursor-pointer select-none">
+              Dev Mode: Send as {isDevResponder ? "Responder" : "User"}
+            </label>
+          </div>
+
+          {/* Recording Indicator */}
+          {isRecording && (
+             <p className="text-xs text-center text-red-500 mb-2 font-medium animate-pulse">
+               Recording... Click Stop to send
+             </p>
+          )}
+
           <div className="flex items-center gap-3 max-w-lg mx-auto">
-            <Button variant="ghost" size="icon">
-              <Image className="w-5 h-5" />
+            {/* HIDDEN INPUT FOR IMAGES */}
+            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageSelect} />
+
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              disabled={isUploading || isRecording}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              <ImageIcon className="w-5 h-5" />
             </Button>
 
             <div className="flex-1 relative">
               <Input
-                placeholder={deviceLanguage === 'es' ? "Escribe un mensaje..." : "Type a message..."}
+                placeholder={isUploading ? "Uploading..." : isRecording ? "Recording..." : "Type a message..."}
                 value={newMessage}
                 onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSend()}
-                className="pr-12 bg-secondary border-border"
+                onKeyDown={(e) => e.key === "Enter" && handleSendText()}
+                disabled={isUploading || isRecording}
+                className="pr-12 bg-secondary border-border focus-visible:ring-1"
               />
             </div>
 
+            {/* DYNAMIC SEND BUTTON */}
             {newMessage.trim() ? (
-              <Button variant="default" size="icon" onClick={handleSend}>
+              <Button variant="default" size="icon" onClick={handleSendText} disabled={isUploading}>
                 <Send className="w-5 h-5" />
               </Button>
             ) : (
               <Button
-                variant={isRecording ? "destructive" : "secondary"}
+                variant={isRecording ? "destructive" : "secondary"} // Red if recording
                 size="icon"
-                onClick={() => setIsRecording(!isRecording)}
+                onClick={isRecording ? stopRecording : startRecording} // Toggle function
+                disabled={isUploading}
               >
-                <Mic className="w-5 h-5" />
+                {isUploading ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : isRecording ? (
+                  <StopCircle className="w-5 h-5 animate-pulse" /> // Show Stop icon when recording
+                ) : (
+                  <Mic className="w-5 h-5" />
+                )}
               </Button>
             )}
-            {isUploading && (
-                <p className="text-xs text-center text-muted-foreground mb-2 flex items-center justify-center gap-2">
-                    <Loader2 className="w-3 h-3 animate-spin" /> Translating & Sending...
-                </p>
-            )}
-
-            {/* Input Bar */}
-            <div className={`flex items-center gap-3 max-w-lg mx-auto backdrop-blur-xl border p-2 rounded-2xl shadow-xl transition-all duration-300 ${
-                isResponderMode ? "bg-blue-500/5 border-blue-500/20" : "bg-card/90 border-border"
-            }`}>
-                
-                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageSelect} />
-                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()} disabled={isUploading}>
-                    <ImageIcon className="w-5 h-5 text-muted-foreground" />
-                </Button>
-
-                <div className="flex-1 relative">
-                    <Input
-                        placeholder={
-                            isDictating ? "Listening..." : 
-                            isResponderMode 
-                                ? SUPPORTED_LANGUAGES[responderLanguage].placeholder 
-                                : SUPPORTED_LANGUAGES[userLanguage].placeholder
-                        }
-                        value={newMessage}
-                        onChange={(e) => setNewMessage(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSendText()}
-                        disabled={isUploading || isRecordingAudio}
-                        className="border-0 bg-transparent focus-visible:ring-0 px-2 h-10 placeholder:text-muted-foreground/50"
-                    />
-                    {hasDictationSupport && !isRecordingAudio && (
-                        <button
-                            onClick={toggleDictation}
-                            className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${
-                                isDictating ? "bg-blue-500 text-white animate-pulse" : "text-muted-foreground hover:bg-black/5"
-                            }`}
-                        >
-                            {isDictating ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}
-                        </button>
-                    )}
-                </div>
-
-                {newMessage.trim() ? (
-                    <Button 
-                        variant="default" size="icon" onClick={handleSendText} disabled={isUploading}
-                        className={`shrink-0 rounded-xl ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}
-                    >
-                        {isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
-                    </Button>
-                ) : (
-                    <Button
-                        variant={isRecordingAudio ? "destructive" : "secondary"}
-                        size="icon"
-                        disabled={isUploading || isDictating} 
-                        onClick={isRecordingAudio ? stopRecordingAudio : startRecordingAudio}
-                        className="shrink-0 rounded-xl"
-                    >
-                        {isRecordingAudio ? <StopCircle className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}
-                    </Button>
-                )}
-            </div>
+          </div>
         </div>
       ) : (
-        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4">
-          <p className="text-center text-sm text-muted-foreground">
-            <Lock className="w-4 h-4 inline mr-2" />
-            This conversation has been closed
+        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4 pb-8 md:pb-4">
+          <p className="text-center text-sm text-muted-foreground flex items-center justify-center">
+            <Lock className="w-4 h-4 mr-2" />
+            This conversation has been closed by the responder
           </p>
         </div>
       )}

@@ -1,481 +1,249 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { useState, useCallback } from 'react';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow } from '@react-google-maps/api';
+import { Event } from './EventCard';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Key, AlertTriangle, Loader2 } from 'lucide-react';
 
-import { GoogleMap, useJsApiLoader, InfoWindow } from '@react-google-maps/api';
+interface EventMapProps {
+  events: Event[];
+  onEventClick: (eventId: string) => void;
+}
 
+// Mock coordinates for events (in real app, events would have lat/lng)
+const mockCoordinates: Record<string, { lat: number; lng: number }> = {
+  "1": { lat: 40.7484, lng: -73.9857 },
+  "2": { lat: 40.7520, lng: -73.9800 },
+  "3": { lat: 40.7600, lng: -73.9700 },
+  "4": { lat: 40.7400, lng: -73.9900 },
+};
 
+const severityColors: Record<string, string> = {
+  critical: '#ef4444',
+  high: '#f97316',
+  medium: '#eab308',
+  low: '#22c55e',
+};
 
-const containerStyle = {
-
+const mapContainerStyle = {
   width: '100%',
-
-  height: '600px',
-
-  borderRadius: '15px'
-
+  height: '100%',
 };
 
+const defaultCenter = { lat: 40.7484, lng: -73.9857 };
 
-
-// ✅ קבוע מחוץ לקומפוננטה (מונע ריענונים מיותרים של המפה)
-
-const LIBRARIES: ("marker" | "drawing" | "geometry" | "localContext" | "places" | "visualization")[] = ['marker'];
-
-
-
-const buttonStyle: React.CSSProperties = {
-
-  position: 'absolute',
-
-  bottom: '80px',
-
-  color: 'black',
-
-  right: '10px',
-
-  zIndex: 10,
-
-  backgroundColor: 'white',
-
-  border: 'none',
-
-  borderRadius: '20px',
-
-  padding: '10px 20px',
-
-  boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
-
-  cursor: 'pointer',
-
-  fontWeight: 'bold',
-
-  fontSize: '14px',
-
-  display: 'flex',
-
-  alignItems: 'center',
-
-  gap: '8px'
-
-};
-
-
-
-const DEFAULT_CENTER = { lat: 32.3424, lng: 34.9116 };
-
-
-
-const ICONS = {
-
-  SOS: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
-
-  NORMAL: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
-
-  USER: "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
-
-};
-
-
-
-const mockEvents = [
-
-  { id: 'ev1', type: 'תאונת דרכים - SOS', severity: 'SOS', lat: 32.3351609, lng: 34.8922542, desc: 'התנגשות חזיתית' },
-
-  { id: 'ev2', type: 'חשד לפח"ע', severity: 'SOS', lat: 32.3462632, lng: 34.9167057, desc: 'דמות חשודה' },
-
-  { id: 'ev3', type: 'אירוע רפואי', severity: 'Normal', lat: 32.3499168, lng: 34.8724600, desc: 'עזרה רפואית' },
-
-  { id: 'ev4', type: 'שריפה', severity: 'SOS', lat: 32.3649513, lng: 34.9021512, desc: 'עשן סמיך' }
-
+const darkMapStyles = [
+  { elementType: "geometry", stylers: [{ color: "#1a1a2e" }] },
+  { elementType: "labels.text.stroke", stylers: [{ color: "#1a1a2e" }] },
+  { elementType: "labels.text.fill", stylers: [{ color: "#8a8a9a" }] },
+  { featureType: "road", elementType: "geometry", stylers: [{ color: "#2a2a4a" }] },
+  { featureType: "road", elementType: "geometry.stroke", stylers: [{ color: "#1a1a2e" }] },
+  { featureType: "water", elementType: "geometry", stylers: [{ color: "#0e0e1a" }] },
+  { featureType: "poi", elementType: "geometry", stylers: [{ color: "#1f1f3a" }] },
+  { featureType: "poi.park", elementType: "geometry", stylers: [{ color: "#1a2a1a" }] },
 ];
 
+const EventMap = ({ events, onEventClick }: EventMapProps) => {
+  const [apiKey, setApiKey] = useState(() => 
+    localStorage.getItem('google_maps_api_key') || 'AIzaSyBwzetcbdfIxTd_bMwou3qymNteXUuZQyw'
+  );
+  const [keyInput, setKeyInput] = useState(apiKey);
+  const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
 
-
-// --- רכיב AdvancedMarker ---
-
-const AdvancedMarker = ({ map, position, icon, onClick, title }: any) => {
-
-  const markerRef = useRef<google.maps.marker.AdvancedMarkerElement | null>(null);
-
-
-
-  useEffect(() => {
-
-    if (!map) return;
-
-
-
-    const img = document.createElement('img');
-
-    img.src = icon;
-
-    img.width = 32;
-
-    img.height = 32;
-
-    img.title = title || '';
-
-
-
-    const marker = new google.maps.marker.AdvancedMarkerElement({
-
-      map,
-
-      position,
-
-      content: img,
-
-      title: title,
-
-      gmpClickable: true,
-
-    });
-
-
-
-    const listener = marker.addListener('click', onClick);
-
-    markerRef.current = marker;
-
-
-
-    return () => {
-
-      marker.map = null;
-
-      google.maps.event.removeListener(listener);
-
-    };
-
-  }, [map, position, icon, onClick, title]);
-
-
-
-  return null;
-
-};
-
-
-
-// --- הקומפוננטה הראשית ---
-
-const EventMap: React.FC = () => {
-
-  const mapRef = useRef<google.maps.Map | null>(null);
-
-  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
-
-  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
-
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
-
-  const [loadingLocation, setLoadingLocation] = useState(true);
-
-
-
-  const { isLoaded } = useJsApiLoader({
-
-    googleMapsApiKey: "AIzaSyBwzetcbdfIxTd_bMwou3qymNteXUuZQyw",
-
-    //libraries: LIBRARIES,
-
-  });
-
-  //nav func
-
-    const handleNavigate = (event: any) => {
-    if (!event) return;
-    
-    // נקודת מוצא: המיקום שלך (אם קיים), נקודת יעד: מיקום האירוע
-    const origin = userPos ? `${userPos.lat},${userPos.lng}` : "";
-    const destination = `${event.lat},${event.lng}`;
-    
-    // בניית URL לניווט (מצב נסיעה)
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}&travelmode=driving`;
-
-    window.open(url);
+  const saveApiKey = () => {
+    localStorage.setItem('google_maps_api_key', keyInput);
+    setApiKey(keyInput);
+    window.location.reload(); // Reload to reinitialize the map with new key
   };
 
-
-  //open chat func
-  const handleOpenChat = (event: any) => {
-    if (!event || !event.id) return;
-    
-    
-    const chatUrl = `https://shobproject.diburit.app/report/${event.id}/chat`;
-    
-    window.open(chatUrl);
-  };
-
-  const onLoad = useCallback((map: google.maps.Map) => {
-
-    mapRef.current = map;
-
-    setMapInstance(map);
-
-  }, []);
-
-
-
-  const onUnmount = useCallback(() => {
-
-    mapRef.current = null;
-
-    setMapInstance(null);
-
-  }, []);
-
-
-
-  // ✅ תיקון ה-GPS: שימוש ב-Cache למניעת "היעלמות" בריענון
-
-  useEffect(() => {
-
-    let isMounted = true;
-
-
-
-    // טיימר גיבוי: אם ה-GPS לא עונה תוך 10 שניות, נשחרר את המפה
-
-    const timeoutId = setTimeout(() => {
-
-      if (isMounted) {
-
-        console.log("GPS timeout - defaulting map");
-
-        setLoadingLocation(false);
-
-      }
-
-    }, 10000);
-
-
-
-    if (!navigator.geolocation) {
-
-      setLoadingLocation(false);
-
-      return;
-
-    }
-
-
-
-    navigator.geolocation.getCurrentPosition(
-
-      (pos) => {
-
-        if (!isMounted) return;
-
-        clearTimeout(timeoutId);
-
-        console.log("Location found via GPS/Cache");
-
-        setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-
-        setLoadingLocation(false);
-
-      },
-
-      (err) => {
-
-        if (!isMounted) return;
-
-        clearTimeout(timeoutId);
-
-        console.warn('GPS Error:', err.message);
-
-        setLoadingLocation(false);
-
-      },
-
-      { 
-
-        enableHighAccuracy: true, 
-
-        timeout: 2500, 
-
-        maximumAge: Infinity // ⬅️ קריטי: משתמש במיקום אחרון ידוע אם קיים (פותר בעיות ריענון)
-
-      }
-
-    );
-
-
-
-
-
-    return () => {
-
-      isMounted = false;
-
-      clearTimeout(timeoutId);
-
-    };
-
-  }, []);
-
-
-
-  const handleRecenter = () => {
-
-    if (mapInstance && userPos) {
-
-      mapInstance.panTo(userPos);
-
-      mapInstance.setZoom(15);
-
-    } else {
-
-      alert("לא זוהה מיקום עבור המכשיר שלך");
-
-    }
-
-  };
-
-
-
-  if (!isLoaded) return <div>טוען ספריות מפה...</div>;
-
-
-
-  if (loadingLocation) {
-
+  if (!apiKey) {
     return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="glass-card p-6 max-w-md w-full space-y-4">
+          <div className="flex items-center gap-3 text-warning">
+            <Key className="w-6 h-6" />
+            <h3 className="text-lg font-semibold text-foreground">Google Maps API Key Required</h3>
+          </div>
+          
+          <p className="text-sm text-muted-foreground">
+            To display the map, please enter your Google Maps API key. You can get one from{' '}
+            <a 
+              href="https://console.cloud.google.com/google/maps-apis" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="text-primary underline"
+            >
+              Google Cloud Console
+            </a>
+            {' '}→ Credentials section.
+          </p>
 
-      <div style={{ ...containerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' }}>
+          <div className="space-y-3">
+            <Input
+              type="text"
+              placeholder="AIza..."
+              value={keyInput}
+              onChange={(e) => setKeyInput(e.target.value)}
+              className="bg-secondary border-border"
+            />
+            <Button 
+              onClick={saveApiKey} 
+              variant="emergency" 
+              className="w-full"
+              disabled={!keyInput}
+            >
+              Save & Load Map
+            </Button>
+          </div>
 
-        <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'black', direction: 'rtl'}}>📍 מחפש מיקום...</span>
-
+          <div className="flex items-start gap-2 p-3 bg-warning/10 rounded-lg">
+            <AlertTriangle className="w-4 h-4 text-warning mt-0.5" />
+            <p className="text-xs text-muted-foreground">
+              Your API key is stored locally and never sent to our servers.
+            </p>
+          </div>
+        </div>
       </div>
-
     );
-
   }
 
+  return <MapWithKey apiKey={apiKey} events={events} onEventClick={onEventClick} selectedEvent={selectedEvent} setSelectedEvent={setSelectedEvent} />;
+};
 
+interface MapWithKeyProps {
+  apiKey: string;
+  events: Event[];
+  onEventClick: (eventId: string) => void;
+  selectedEvent: Event | null;
+  setSelectedEvent: (event: Event | null) => void;
+}
+
+const MapWithKey = ({ apiKey, events, onEventClick, selectedEvent, setSelectedEvent }: MapWithKeyProps) => {
+  const { isLoaded, loadError } = useJsApiLoader({
+    googleMapsApiKey: apiKey,
+  });
+
+  const onMapClick = useCallback(() => {
+    setSelectedEvent(null);
+  }, [setSelectedEvent]);
+
+  if (loadError) {
+    return (
+      <div className="h-full flex items-center justify-center p-6">
+        <div className="glass-card p-6 max-w-md w-full space-y-4 text-center">
+          <AlertTriangle className="w-12 h-12 text-destructive mx-auto" />
+          <h3 className="text-lg font-semibold text-foreground">Failed to load map</h3>
+          <p className="text-sm text-muted-foreground">
+            Please check your API key and ensure the Maps JavaScript API is enabled.
+          </p>
+          <Button 
+            onClick={() => {
+              localStorage.removeItem('google_maps_api_key');
+              window.location.reload();
+            }}
+            variant="outline"
+          >
+            Enter New API Key
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isLoaded) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
-
-    <div style={{ position: 'relative', height: '600px', width: '100%' }}>
-
-      
+    <div className="relative h-full">
       <GoogleMap
-        mapContainerStyle={containerStyle}
-        center={userPos || DEFAULT_CENTER} 
-        zoom={14}
-        onLoad={onLoad}
-        onUnmount={onUnmount}
+        mapContainerStyle={mapContainerStyle}
+        center={defaultCenter}
+        zoom={13}
+        onClick={onMapClick}
         options={{
-          mapId: "38b93d472d0ccd67ae96d1e0", 
+          styles: darkMapStyles,
           disableDefaultUI: false,
+          zoomControl: true,
+          streetViewControl: false,
+          mapTypeControl: false,
+          fullscreenControl: false,
         }}
       >
-        {mapInstance && (
-          <>
-            {userPos && (
-              <AdvancedMarker
-                map={mapInstance}
-                position={userPos}
-                icon={ICONS.USER}
-                title="המיקום שלי"
-                onClick={() => {}}
-              />
-            )}
+        {events.map((event) => {
+          const coords = mockCoordinates[event.id];
+          if (!coords) return null;
 
-            {mockEvents.map(ev => (
-              <AdvancedMarker
-                key={ev.id}
-                map={mapInstance}
-                position={{ lat: ev.lat, lng: ev.lng }}
-                icon={ev.severity === 'SOS' ? ICONS.SOS : ICONS.NORMAL}
-                title={ev.type}
-                onClick={() => setSelectedEvent(ev)}
-              />
-            ))}
-          </>
-        )}
+          return (
+            <Marker
+              key={event.id}
+              position={coords}
+              onClick={() => setSelectedEvent(event)}
+              icon={{
+                path: google.maps.SymbolPath.CIRCLE,
+                scale: 12,
+                fillColor: severityColors[event.severity],
+                fillOpacity: 1,
+                strokeColor: '#ffffff',
+                strokeWeight: 3,
+              }}
+            />
+          );
+        })}
 
-        {selectedEvent && (
+        {selectedEvent && mockCoordinates[selectedEvent.id] && (
           <InfoWindow
-            key={selectedEvent.id}
-            position={{ lat: selectedEvent.lat, lng: selectedEvent.lng }}
+            position={mockCoordinates[selectedEvent.id]}
             onCloseClick={() => setSelectedEvent(null)}
-            options={{ pixelOffset: new google.maps.Size(0, -40) }}
           >
-            {/* כל מה שבתוך ה-div הזה יופיע בתוך הבלון של המפה */}
-            <div style={{ 
-              color: 'black', 
-              direction: 'rtl', 
-              textAlign: 'right', 
-              padding: '10px',
-              minWidth: '180px' 
-            }}>
-              <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0', fontSize: '16px' }}>{selectedEvent.type}</h3>
-              <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>{selectedEvent.desc}</p>
-              
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* כפתור ניווט */}
-                <button 
-                  onClick={() => handleNavigate(selectedEvent)}
-                  style={{
-                    backgroundColor: '#4285F4',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <span>🚗</span> ניווט לאירוע
-                </button>
-
-                {/* כפתור צ'אט */}
-                <button 
-                  onClick={() => handleOpenChat(selectedEvent)}
-                  style={{
-                    backgroundColor: '#34A853',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '8px 12px',
-                    cursor: 'pointer',
-                    fontWeight: 'bold',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    gap: '8px'
-                  }}
-                >
-                  <span>💬</span> צ'אט אירוע
-                </button>
+            <div className="p-2 min-w-[200px]">
+              <div 
+                className="text-xs font-bold uppercase mb-1"
+                style={{ color: severityColors[selectedEvent.severity] }}
+              >
+                {selectedEvent.severity}
               </div>
+              <h3 className="font-semibold text-gray-900 capitalize mb-1">
+                {selectedEvent.type}
+              </h3>
+              <p className="text-sm text-gray-600 mb-2">
+                {selectedEvent.location}
+              </p>
+              <p className="text-xs text-gray-500 mb-3">
+                {selectedEvent.distance} away • {selectedEvent.timestamp}
+              </p>
+              <button
+                onClick={() => onEventClick(selectedEvent.id)}
+                className="w-full bg-red-500 text-white text-sm py-2 px-4 rounded-lg font-medium hover:bg-red-600 transition-colors"
+              >
+                View Details
+              </button>
             </div>
           </InfoWindow>
         )}
       </GoogleMap>
 
-
-
-
-
-      <button style={buttonStyle} onClick={handleRecenter}>
-
-        <span>📍</span> המיקום שלי
-
-      </button>
-
-
+      {/* Legend */}
+      <div className="absolute bottom-4 left-4 glass-card p-3 space-y-2">
+        <p className="text-xs font-semibold text-foreground">Severity</p>
+        <div className="space-y-1">
+          {Object.entries(severityColors).map(([severity, color]) => (
+            <div key={severity} className="flex items-center gap-2">
+              <div 
+                className="w-3 h-3 rounded-full" 
+                style={{ backgroundColor: color }}
+              />
+              <span className="text-xs text-muted-foreground capitalize">{severity}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
-
   );
-
 };
-
-
 
 export default EventMap;
