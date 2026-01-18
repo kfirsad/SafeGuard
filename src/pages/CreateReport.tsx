@@ -9,8 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 
-// --- Custom Type Definitions for Web Speech API ---
-// We define these here because they aren't always standard in every TS environment
+// creating report page
 interface SpeechRecognitionResult {
   [index: number]: { transcript: string };
 }
