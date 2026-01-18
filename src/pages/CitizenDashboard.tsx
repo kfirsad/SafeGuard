@@ -88,6 +88,7 @@ const [capturedLocation, setCapturedLocation] = useState<{latitude: number; long
       }:null,
       type:type,
       severity:"emergency",
+      responderPhone: null,
       isActive: true
     }
     const currentUserPhone=auth.currentUser?.phoneNumber||"unknown";

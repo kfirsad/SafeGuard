@@ -99,23 +99,6 @@ export async function createReport(eventId, phoneNumber, eventData) {
     createdAt: serverTimestamp(),
   });
 
-  // create report doc
-  await setDoc(doc(userDB, "reports", eventId), {
-    userId: cleanedPhone,
-    status: "active",
-    type: eventData.type,
-    severity: eventData.severity,
-    location: eventData.location,
-    createdAt: serverTimestamp(),
-  });
-
-  await addDoc(collection(userDB, "reports", eventId, "messages"), {
-    text: "Emergency alert received. A responder will join shortly.",
-    sender: "system",
-    type: "text",
-    createdAt: serverTimestamp(),
-  });
-
   await addDoc(collection(userDB, "events", eventId, "messages"), {
     text: "Emergency alert received. A responder will join shortly.",
     sender: "system",
