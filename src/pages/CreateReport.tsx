@@ -364,7 +364,7 @@ const CreateReport = () => {
                 <div className="grid grid-cols-2 gap-3">
                   <Button
                     variant="secondary"
-                    className="h-12 sm:hidden"
+                    className="h-12"
                     onClick={() => {
                       if (activePicker === "image") {
                         imageCameraInputRef.current?.click();
