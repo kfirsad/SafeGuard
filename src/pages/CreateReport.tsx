@@ -8,7 +8,7 @@ import { useToast } from "@/hooks/use-toast";
 import { EmergencyType } from "@/components/EmergencyTypeSelector";
 import { auth, createReport, getNextEventId, linkEventToUser, storage, userDB } from "@/lib/firebase";
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
-import { doc, updateDoc } from "firebase/firestore";
+import { addDoc, collection, doc, serverTimestamp, updateDoc } from "firebase/firestore";
 
 const categories = [
   { id: "medical" as EmergencyType, label: "Medical", icon: Heart, color: "bg-emergency-medical" },
@@ -168,6 +168,15 @@ const CreateReport = () => {
       await createReport(eventId, currentUserPhone, eventData);
       await linkEventToUser(currentUserPhone, eventId);
 
+      if (eventData.description) {
+        await addDoc(collection(userDB, "events", eventId, "messages"), {
+          text: eventData.description,
+          sender: "user",
+          createdAt: serverTimestamp(),
+          type: "text",
+        });
+      }
+
       toast({
         title: "Report Submitted",
         description: "Emergency responders have been notified",
@@ -185,6 +194,40 @@ const CreateReport = () => {
           videos: videoUrls,
           audio: audioUrls,
         });
+        const messageWrites: Promise<unknown>[] = [];
+        imageUrls.forEach((url) => {
+          messageWrites.push(
+            addDoc(collection(userDB, "events", eventId, "messages"), {
+              text: url,
+              sender: "user",
+              createdAt: serverTimestamp(),
+              type: "image",
+            })
+          );
+        });
+        videoUrls.forEach((url) => {
+          messageWrites.push(
+            addDoc(collection(userDB, "events", eventId, "messages"), {
+              text: url,
+              sender: "user",
+              createdAt: serverTimestamp(),
+              type: "video",
+            })
+          );
+        });
+        audioUrls.forEach((url) => {
+          messageWrites.push(
+            addDoc(collection(userDB, "events", eventId, "messages"), {
+              text: url,
+              sender: "user",
+              createdAt: serverTimestamp(),
+              type: "voice",
+            })
+          );
+        });
+        if (messageWrites.length) {
+          await Promise.all(messageWrites);
+        }
       })();
     } finally {
       setIsSubmitting(false);

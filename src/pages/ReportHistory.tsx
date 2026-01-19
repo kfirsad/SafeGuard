@@ -1,42 +1,13 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft, Clock, CheckCircle, AlertCircle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import EventCard, { Event } from "@/components/EventCard";
-
-const mockHistory: Event[] = [
-  {
-    id: "1",
-    type: "medical",
-    severity: "high",
-    description: "Requested ambulance for chest pain",
-    location: "Home Address",
-    distance: "",
-    timestamp: "Today, 2:30 PM",
-    status: "closed",
-  },
-  {
-    id: "2",
-    type: "police",
-    severity: "medium",
-    description: "Reported suspicious vehicle",
-    location: "Parking Lot B",
-    distance: "",
-    timestamp: "Yesterday, 8:15 PM",
-    status: "closed",
-  },
-  {
-    id: "3",
-    type: "fire",
-    severity: "low",
-    description: "Smoke alarm triggered - false alarm",
-    location: "Office Building",
-    distance: "",
-    timestamp: "Last week",
-    status: "closed",
-  },
-];
+import { auth, normalizePhoneNumber, userDB } from "@/lib/firebase";
+import { onAuthStateChanged } from "firebase/auth";
+import { doc, getDoc } from "firebase/firestore";
 
 const statusConfig = {
   open: { icon: AlertCircle, color: "bg-warning/20 text-warning", label: "Open" },
@@ -46,7 +17,88 @@ const statusConfig = {
 };
 
 const ReportHistory = () => {
+  const [events, setEvents] = useState<Event[]>([]);
   const navigate = useNavigate();
+
+  const formatTimestamp = (value: any) => {
+    if (!value) return "";
+    const date = value.toDate ? value.toDate() : new Date(value);
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfYesterday = new Date(startOfToday);
+    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
+    const startOfWeek = new Date(startOfToday);
+    startOfWeek.setDate(startOfWeek.getDate() - 6);
+
+    const time = date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    if (date >= startOfToday) {
+      return `Today, ${time}`;
+    }
+    if (date >= startOfYesterday) {
+      return `Yesterday, ${time}`;
+    }
+    if (date >= startOfWeek) {
+      const day = date.toLocaleDateString([], { weekday: "long" });
+      return `${day}, ${time}`;
+    }
+    const day = date.toLocaleDateString([], { month: "short", day: "numeric", year: "numeric" });
+    return `${day}, ${time}`;
+  };
+
+  useEffect(() => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (user) => {
+      const phone = user?.phoneNumber;
+      const normalizedPhone = phone ? normalizePhoneNumber(phone) : null;
+      console.log("Fetching events for phone:", normalizedPhone);
+      if (!normalizedPhone) {
+        setEvents([]);
+        return;
+      }
+      const userRef = doc(userDB, "users", normalizedPhone);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) {
+        setEvents([]);
+        return;
+      }
+      const data = userSnap.data();
+      const eventIds = Array.isArray(data.Events) ? data.Events : [];
+      if (!eventIds.length) {
+        setEvents([]);
+        return;
+      }
+      const eventDocs = await Promise.all(
+        eventIds.map((eventId) => getDoc(doc(userDB, "events", String(eventId))))
+      );
+      const next = eventDocs
+        .filter((snap) => snap.exists())
+        .map((snap) => {
+          const eventData = snap.data();
+          const isSos = eventData.severity === "emergency";
+          const status = eventData.isActive ? "open" : "closed";
+          const severity = isSos ? "critical" : (eventData.severity ?? undefined);
+          const description = eventData.description || (isSos ? `SOS ${eventData.type || "Emergency"}` : "");
+          return {
+            id: snap.id,
+            type: eventData.type,
+            severity: severity,
+            description: description,
+            location: "",
+            distance: "",
+            timestamp: formatTimestamp(eventData.createdAt || eventData.timeStamp),
+            status: status,
+            sortDate: (eventData.createdAt && eventData.createdAt.toDate)
+              ? eventData.createdAt.toDate()
+              : new Date(eventData.timeStamp || 0),
+          } as Event & { sortDate: Date };
+        })
+        .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+        .map(({ sortDate, ...rest }) => rest as Event);
+      setEvents(next);
+    });
+    return () => {
+      unsubscribeAuth();
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-background">
@@ -61,23 +113,15 @@ const ReportHistory = () => {
               Report History
             </h1>
             <p className="text-xs text-muted-foreground">
-              {mockHistory.length} past reports
+              {events.length} past reports
             </p>
           </div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-4 py-3 flex gap-2 overflow-x-auto">
-        <Badge variant="default" className="cursor-pointer whitespace-nowrap">All</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">Open</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">In Progress</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">Closed</Badge>
-      </div>
-
       {/* Reports List */}
       <div className="p-4 space-y-3">
-        {mockHistory.map((report, index) => (
+        {events.map((report, index) => (
           <motion.div
             key={report.id}
             initial={{ opacity: 0, y: 20 }}
@@ -88,7 +132,7 @@ const ReportHistory = () => {
               <div className="p-4">
                 <EventCard
                   event={report}
-                  onClick={() => navigate(`/report/${report.id}/chat`)}
+                  onClick={() => navigate(`/event/${report.id}/chat`)}
                   index={0}
                 />
               </div>
@@ -109,7 +153,7 @@ const ReportHistory = () => {
                 <Button 
                   variant="ghost" 
                   size="sm"
-                  onClick={() => navigate(`/report/${report.id}/chat`)}
+                  onClick={() => navigate(`/event/${report.id}/chat`)}
                   className="gap-2"
                 >
                   <MessageSquare className="w-4 h-4" />

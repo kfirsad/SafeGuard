@@ -29,11 +29,13 @@ const severityConfig = {
   low: { color: "bg-success/20 text-success border-success/30", label: "Low" },
   medium: { color: "bg-warning/20 text-warning border-warning/30", label: "Medium" },
   high: { color: "bg-primary/20 text-primary border-primary/30", label: "High" },
-  critical: { color: "bg-destructive/20 text-destructive border-destructive/30 animate-pulse", label: "Critical" },
+  critical: { color: "bg-destructive/20 text-destructive border-destructive/30 animate-pulse", label: "Emergency" },
 };
 
 const EventCard = ({ event, onClick, index = 0 }: EventCardProps) => {
-  const TypeIcon = typeConfig[event.type].icon;
+  const type = typeConfig[event.type] || typeConfig.medical;
+  const TypeIcon = type.icon;
+  const severity = severityConfig[event.severity];
 
   return (
     <motion.button
@@ -43,16 +45,18 @@ const EventCard = ({ event, onClick, index = 0 }: EventCardProps) => {
       onClick={onClick}
       className="w-full glass-card p-4 flex items-start gap-4 hover:bg-card/80 transition-all duration-200 group text-left"
     >
-      <div className={`w-12 h-12 rounded-xl ${typeConfig[event.type].color} flex items-center justify-center shrink-0`}>
+      <div className={`w-12 h-12 rounded-xl ${type.color} flex items-center justify-center shrink-0`}>
         <TypeIcon className="w-6 h-6 text-foreground" />
       </div>
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-1">
-          <Badge variant="outline" className={severityConfig[event.severity].color}>
-            <AlertTriangle className="w-3 h-3 mr-1" />
-            {severityConfig[event.severity].label}
-          </Badge>
+          {severity && (
+            <Badge variant="outline" className={severity.color}>
+              <AlertTriangle className="w-3 h-3 mr-1" />
+              {severity.label}
+            </Badge>
+          )}
           <span className="text-xs text-muted-foreground">{event.distance}</span>
         </div>
 
