@@ -1,4 +1,189 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { GoogleMap, useJsApiLoader, InfoWindow } from '@react-google-maps/api';
+
+const containerStyle = {
+  width: '100%',
+  height: '600px',
+  borderRadius: '15px'
+};
+
+const LIBRARIES: ("marker" | "drawing" | "geometry" | "localContext" | "places" | "visualization")[] = ['marker'];
+
+const buttonStyle: React.CSSProperties = {
+  position: 'absolute',
+  bottom: '80px',
+  color: 'black',
+  right: '10px',
+  zIndex: 10,
+  backgroundColor: 'white',
+  border: 'none',
+  borderRadius: '20px',
+  padding: '10px 20px',
+  boxShadow: '0 2px 6px rgba(0,0,0,0.3)',
+  cursor: 'pointer',
+  fontWeight: 'bold',
+  fontSize: '14px',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '8px'
+};
+
+const DEFAULT_CENTER = { lat: 32.3424, lng: 34.9116 };
+
+const ICONS = {
+  SOS: "https://maps.google.com/mapfiles/ms/icons/red-dot.png",
+  NORMAL: "https://maps.google.com/mapfiles/ms/icons/blue-dot.png",
+  USER: "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
+};
+
+const mockEvents = [
+  { id: 'ev1', type: 'תאונת דרכים - SOS', severity: 'SOS', lat: 32.3351609, lng: 34.8922542, desc: 'התנגשות חזיתית' },
+  { id: 'ev2', type: 'חשד לפח"ע', severity: 'SOS', lat: 32.3462632, lng: 34.9167057, desc: 'דמות חשודה' },
+  { id: 'ev3', type: 'אירוע רפואי', severity: 'Normal', lat: 32.3499168, lng: 34.8724600, desc: 'עזרה רפואית' },
+  { id: 'ev4', type: 'שריפה', severity: 'SOS', lat: 32.3649513, lng: 34.9021512, desc: 'עשן סמיך' }
+];
+
+const AdvancedMarker = ({ map, position, icon, onClick, title }: any) => {
+  const markerRef = useRef<any>(null);
+
+  useEffect(() => {
+    if (!map) return;
+
+    let markerInstance: any = null;
+
+    const initMarker = async () => {
+      try {
+        const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
+        
+        if (!AdvancedMarkerElement) return;
+
+        const img = document.createElement('img');
+        img.src = icon;
+        img.width = 32;
+        img.height = 32;
+        img.title = title || '';
+
+        markerInstance = new AdvancedMarkerElement({
+          map,
+          position,
+          content: img,
+          title: title,
+          gmpClickable: true,
+        });
+
+        if (onClick) {
+            markerInstance.addListener('click', onClick);
+        }
+        
+        markerRef.current = markerInstance;
+
+      } catch (error) {
+        console.error(error);
+      }
+    };
+
+    initMarker();
+
+    return () => {
+      if (markerInstance) {
+        markerInstance.map = null;
+      }
+    };
+  }, [map, position, icon, onClick, title]);
+
+  return null;
+};
+
+const EventMap: React.FC = () => {
+  const mapRef = useRef<google.maps.Map | null>(null);
+  const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
+  const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<any>(null);
+  const [loadingLocation, setLoadingLocation] = useState(true);
+
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: "AIzaSyBwzetcbdfIxTd_bMwou3qymNteXUuZQyw",
+    libraries: LIBRARIES,
+  });
+
+  const handleNavigate = (event: any) => {
+    if (!event) return;
+    const origin = userPos ? `${userPos.lat},${userPos.lng}` : "";
+    const destination = `${event.lat},${event.lng}`;
+    const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
+    window.open(url, '_blank');
+  };
+
+  const handleOpenChat = (event: any) => {
+    if (!event || !event.id) return;
+    const chatUrl = `/report/${event.id}/chat`;
+    window.open(chatUrl, '_self');
+  };
+
+  const onLoad = useCallback((map: google.maps.Map) => {
+    mapRef.current = map;
+    setMapInstance(map);
+  }, []);
+
+  const onUnmount = useCallback(() => {
+    mapRef.current = null;
+    setMapInstance(null);
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+    const timeoutId = setTimeout(() => {
+      if (isMounted) {
+        setLoadingLocation(false);
+      }
+    }, 10000);
+
+    if (!navigator.geolocation) {
+      setLoadingLocation(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        if (!isMounted) return;
+        clearTimeout(timeoutId);
+        setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        setLoadingLocation(false);
+      },
+      (err) => {
+        if (!isMounted) return;
+        clearTimeout(timeoutId);
+        setLoadingLocation(false);
+      },
+      { 
+        enableHighAccuracy: true, 
+        timeout: 2500, 
+        maximumAge: Infinity 
+      }
+    );
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, []);
+
+  const handleRecenter = () => {
+    if (mapInstance && userPos) {
+      mapInstance.panTo(userPos);
+      mapInstance.setZoom(15);
+    } else {
+      alert("לא זוהה מיקום עבור המכשיר שלך");
+    }
+  };
+
+  if (!isLoaded) return <div>Loading map...</div>;
+
+  if (loadingLocation) {
+    return (
+      <div style={{ ...containerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' }}>
+        <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'black', direction: 'rtl'}}>📍 מחפש מיקום...</span>
 
 import { GoogleMap, useJsApiLoader, InfoWindow } from '@react-google-maps/api';
 
@@ -355,10 +540,7 @@ const EventMap: React.FC = () => {
 
 
   return (
-
     <div style={{ position: 'relative', height: '600px', width: '100%' }}>
-
-      
       <GoogleMap
         mapContainerStyle={containerStyle}
         center={userPos || DEFAULT_CENTER} 
@@ -366,8 +548,9 @@ const EventMap: React.FC = () => {
         onLoad={onLoad}
         onUnmount={onUnmount}
         options={{
-          mapId: "38b93d472d0ccd67ae96d1e0", 
+          mapId: "38b93d472d0ccd67ae96d1e0",
           disableDefaultUI: false,
+          clickableIcons: false
         }}
       >
         {mapInstance && (
@@ -402,7 +585,6 @@ const EventMap: React.FC = () => {
             onCloseClick={() => setSelectedEvent(null)}
             options={{ pixelOffset: new google.maps.Size(0, -40) }}
           >
-            {/* כל מה שבתוך ה-div הזה יופיע בתוך הבלון של המפה */}
             <div style={{ 
               color: 'black', 
               direction: 'rtl', 
@@ -414,7 +596,6 @@ const EventMap: React.FC = () => {
               <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>{selectedEvent.desc}</p>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {/* כפתור ניווט */}
                 <button 
                   onClick={() => handleNavigate(selectedEvent)}
                   style={{
@@ -434,7 +615,6 @@ const EventMap: React.FC = () => {
                   <span>🚗</span> ניווט לאירוע
                 </button>
 
-                {/* כפתור צ'אט */}
                 <button 
                   onClick={() => handleOpenChat(selectedEvent)}
                   style={{
@@ -459,17 +639,9 @@ const EventMap: React.FC = () => {
         )}
       </GoogleMap>
 
-
-
-
-
       <button style={buttonStyle} onClick={handleRecenter}>
-
         <span>📍</span> המיקום שלי
-
       </button>
-
-
     </div>
 
   );
