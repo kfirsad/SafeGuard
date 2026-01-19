@@ -119,14 +119,6 @@ const ReportHistory = () => {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="px-4 py-3 flex gap-2 overflow-x-auto">
-        <Badge variant="default" className="cursor-pointer whitespace-nowrap">All</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">Open</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">In Progress</Badge>
-        <Badge variant="outline" className="cursor-pointer whitespace-nowrap">Closed</Badge>
-      </div>
-
       {/* Reports List */}
       <div className="p-4 space-y-3">
         {events.map((report, index) => (

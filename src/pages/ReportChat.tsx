@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from "react";
 import { motion } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, Loader2 } from "lucide-react"; // Added StopCircle
+import { ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, Loader2, Video } from "lucide-react"; // Added StopCircle
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 
@@ -23,7 +23,7 @@ interface Message {
   text: string;
   sender: "user" | "responder";
   timestamp: any; 
-  type: "text" | "image" | "voice";
+  type: "text" | "image" | "voice" | "video";
 }
 
 const ReportChat = () => {
@@ -45,6 +45,7 @@ const ReportChat = () => {
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const videoInputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
 
   const scrollToBottom = () => {
@@ -90,6 +91,25 @@ const ReportChat = () => {
     } catch (error) {
       console.error("Upload failed:", error);
       alert("Failed to upload image.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !eventId) return;
+
+    setIsUploading(true);
+    try {
+      const storageRef = ref(storage, `events/${eventId}/videos/${Date.now()}_${file.name}`);
+      await uploadBytes(storageRef, file);
+      const downloadURL = await getDownloadURL(storageRef);
+
+      await sendMessage(downloadURL, "video");
+    } catch (error) {
+      console.error("Upload failed:", error);
+      alert("Failed to upload video.");
     } finally {
       setIsUploading(false);
     }
@@ -143,7 +163,7 @@ const ReportChat = () => {
   };
 
   // Shared Send Function
-  const sendMessage = async (content: string, type: "text" | "image" | "voice") => {
+  const sendMessage = async (content: string, type: "text" | "image" | "voice" | "video") => {
     if (!eventId) return;
     await addDoc(collection(userDB, "events", eventId, "messages"), {
       text: content,
@@ -206,6 +226,14 @@ const ReportChat = () => {
                 />
               )}
 
+              {message.type === "video" && (
+                <video
+                  src={message.text}
+                  controls
+                  className="rounded-lg max-h-60 w-auto object-cover border border-white/20"
+                />
+              )}
+
               {message.type === "voice" && (
                 <div className="flex items-center gap-2 min-w-[200px]">
                   <audio controls src={message.text} className="h-8 w-full max-w-[250px]" />
@@ -249,6 +277,7 @@ const ReportChat = () => {
           <div className="flex items-center gap-3 max-w-lg mx-auto">
             {/* HIDDEN INPUT FOR IMAGES */}
             <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageSelect} />
+            <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={handleVideoSelect} />
 
             <Button 
               variant="ghost" 
@@ -257,6 +286,14 @@ const ReportChat = () => {
               onClick={() => fileInputRef.current?.click()}
             >
               <ImageIcon className="w-5 h-5" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              disabled={isUploading || isRecording}
+              onClick={() => videoInputRef.current?.click()}
+            >
+              <Video className="w-5 h-5" />
             </Button>
 
             <div className="flex-1 relative">
