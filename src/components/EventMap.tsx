@@ -1,10 +1,31 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { GoogleMap, useJsApiLoader, InfoWindow } from '@react-google-maps/api';
 
+// --- Types ---
+export interface EmergencyEvent {
+  id: string;
+  type: string;
+  severity: "critical" | "high" | "medium" | "low" | "SOS" | "Normal";
+  lat: number;
+  lng: number;
+  description: string;
+  location: string;
+  distance?: string;
+  timestamp?: string;
+  status?: string;
+}
+
+interface EventMapProps {
+  events: EmergencyEvent[];
+  selectedEvent: EmergencyEvent | null; // Controlled by parent
+  onEventSelect: (event: EmergencyEvent | null) => void; // Tell parent to select/deselect
+  onChatClick: (event: EmergencyEvent) => void;
+}
+
 const containerStyle = {
   width: '100%',
-  height: '600px',
-  borderRadius: '15px'
+  height: '100%',
+  borderRadius: '0px'
 };
 
 const LIBRARIES: ("marker" | "drawing" | "geometry" | "localContext" | "places" | "visualization")[] = ['marker'];
@@ -36,25 +57,16 @@ const ICONS = {
   USER: "https://maps.google.com/mapfiles/ms/icons/green-dot.png"
 };
 
-const mockEvents = [
-  { id: 'ev1', type: 'תאונת דרכים - SOS', severity: 'SOS', lat: 32.3351609, lng: 34.8922542, desc: 'התנגשות חזיתית' },
-  { id: 'ev2', type: 'חשד לפח"ע', severity: 'SOS', lat: 32.3462632, lng: 34.9167057, desc: 'דמות חשודה' },
-  { id: 'ev3', type: 'אירוע רפואי', severity: 'Normal', lat: 32.3499168, lng: 34.8724600, desc: 'עזרה רפואית' },
-  { id: 'ev4', type: 'שריפה', severity: 'SOS', lat: 32.3649513, lng: 34.9021512, desc: 'עשן סמיך' }
-];
-
 const AdvancedMarker = ({ map, position, icon, onClick, title }: any) => {
   const markerRef = useRef<any>(null);
 
   useEffect(() => {
     if (!map) return;
-
     let markerInstance: any = null;
-
+    
     const initMarker = async () => {
       try {
         const { AdvancedMarkerElement } = await google.maps.importLibrary("marker") as google.maps.MarkerLibrary;
-        
         if (!AdvancedMarkerElement) return;
 
         const img = document.createElement('img');
@@ -74,9 +86,7 @@ const AdvancedMarker = ({ map, position, icon, onClick, title }: any) => {
         if (onClick) {
             markerInstance.addListener('click', onClick);
         }
-        
         markerRef.current = markerInstance;
-
       } catch (error) {
         console.error(error);
       }
@@ -85,21 +95,17 @@ const AdvancedMarker = ({ map, position, icon, onClick, title }: any) => {
     initMarker();
 
     return () => {
-      if (markerInstance) {
-        markerInstance.map = null;
-      }
+      if (markerInstance) markerInstance.map = null;
     };
   }, [map, position, icon, onClick, title]);
 
   return null;
 };
 
-const EventMap: React.FC = () => {
+const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelect, onChatClick }) => {
   const mapRef = useRef<google.maps.Map | null>(null);
   const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
-  const [selectedEvent, setSelectedEvent] = useState<any>(null);
-  const [loadingLocation, setLoadingLocation] = useState(true);
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -107,18 +113,21 @@ const EventMap: React.FC = () => {
     libraries: LIBRARIES,
   });
 
+  // --- Effect: Focus map when selectedEvent changes ---
+  useEffect(() => {
+    if (selectedEvent && mapInstance) {
+        const newPos = { lat: selectedEvent.lat, lng: selectedEvent.lng };
+        mapInstance.panTo(newPos);
+        // Optional: slight zoom in if needed, but keeping user context is usually better
+        // mapInstance.setZoom(15); 
+    }
+  }, [selectedEvent, mapInstance]);
+
   const handleNavigate = (event: any) => {
     if (!event) return;
-    const origin = userPos ? `${userPos.lat},${userPos.lng}` : "";
     const destination = `${event.lat},${event.lng}`;
     const url = `https://www.google.com/maps/dir/?api=1&destination=${destination}&travelmode=driving`;
     window.open(url, '_blank');
-  };
-
-  const handleOpenChat = (event: any) => {
-    if (!event || !event.id) return;
-    const chatUrl = `/report/${event.id}/chat`;
-    window.open(chatUrl, '_self');
   };
 
   const onLoad = useCallback((map: google.maps.Map) => {
@@ -132,41 +141,14 @@ const EventMap: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    let isMounted = true;
-    const timeoutId = setTimeout(() => {
-      if (isMounted) {
-        setLoadingLocation(false);
-      }
-    }, 10000);
-
-    if (!navigator.geolocation) {
-      setLoadingLocation(false);
-      return;
-    }
-
+    if (!navigator.geolocation) return;
     navigator.geolocation.getCurrentPosition(
       (pos) => {
-        if (!isMounted) return;
-        clearTimeout(timeoutId);
         setUserPos({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLoadingLocation(false);
       },
-      (err) => {
-        if (!isMounted) return;
-        clearTimeout(timeoutId);
-        setLoadingLocation(false);
-      },
-      { 
-        enableHighAccuracy: true, 
-        timeout: 2500, 
-        maximumAge: Infinity 
-      }
+      () => {},
+      { enableHighAccuracy: true, timeout: 5000 }
     );
-
-    return () => {
-      isMounted = false;
-      clearTimeout(timeoutId);
-    };
   }, []);
 
   const handleRecenter = () => {
@@ -174,32 +156,29 @@ const EventMap: React.FC = () => {
       mapInstance.panTo(userPos);
       mapInstance.setZoom(15);
     } else {
-      alert("לא זוהה מיקום עבור המכשיר שלך");
+      alert("Location not found");
     }
   };
 
   if (!isLoaded) return <div>Loading map...</div>;
 
-  if (loadingLocation) {
-    return (
-      <div style={{ ...containerStyle, display: 'flex', alignItems: 'center', justifyContent: 'center', backgroundColor: '#f0f0f0' }}>
-        <span style={{ fontSize: '18px', fontWeight: 'bold', color: 'black', direction: 'rtl'}}>📍 מחפש מיקום...</span>
-      </div>
-    );
-  }
-
   return (
-    <div style={{ position: 'relative', height: '600px', width: '100%' }}>
+    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
       <GoogleMap
         mapContainerStyle={containerStyle}
         center={userPos || DEFAULT_CENTER} 
-        zoom={14}
+        zoom={13}
         onLoad={onLoad}
         onUnmount={onUnmount}
         options={{
           mapId: "38b93d472d0ccd67ae96d1e0",
           disableDefaultUI: false,
-          clickableIcons: false
+          clickableIcons: false,
+          streetViewControl: false,
+          mapTypeControl: false,
+          zoomControl: false, 
+          panControl: false,
+          cameraControl: false,
         }}
       >
         {mapInstance && (
@@ -209,40 +188,44 @@ const EventMap: React.FC = () => {
                 map={mapInstance}
                 position={userPos}
                 icon={ICONS.USER}
-                title="המיקום שלי"
-                onClick={() => {}}
+                title="My Location"
               />
             )}
 
-            {mockEvents.map(ev => (
+            {events.map(ev => (
               <AdvancedMarker
                 key={ev.id}
                 map={mapInstance}
                 position={{ lat: ev.lat, lng: ev.lng }}
-                icon={ev.severity === 'SOS' ? ICONS.SOS : ICONS.NORMAL}
+                icon={(ev.severity === 'critical' || ev.severity === 'SOS') ? ICONS.SOS : ICONS.NORMAL}
                 title={ev.type}
-                onClick={() => setSelectedEvent(ev)}
+                // When clicking a marker, tell parent to select it
+                onClick={() => onEventSelect(ev)} 
               />
             ))}
           </>
         )}
 
+        {/* InfoWindow logic now depends on the PROPS selectedEvent */}
         {selectedEvent && (
           <InfoWindow
             key={selectedEvent.id}
             position={{ lat: selectedEvent.lat, lng: selectedEvent.lng }}
-            onCloseClick={() => setSelectedEvent(null)}
+            onCloseClick={() => onEventSelect(null)} // Tell parent to deselect
             options={{ pixelOffset: new google.maps.Size(0, -40) }}
           >
             <div style={{ 
               color: 'black', 
-              direction: 'rtl', 
-              textAlign: 'right', 
+              direction: 'ltr', 
+              textAlign: 'left', 
               padding: '10px',
-              minWidth: '180px' 
+              minWidth: '200px' 
             }}>
-              <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0', fontSize: '16px' }}>{selectedEvent.type}</h3>
-              <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>{selectedEvent.desc}</p>
+              <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0', fontSize: '16px', textTransform: 'capitalize' }}>
+                {selectedEvent.type}
+              </h3>
+              <p style={{ margin: '0 0 12px 0', fontSize: '14px' }}>{selectedEvent.description}</p>
+              <p style={{ margin: '0 0 12px 0', fontSize: '12px', color: '#666' }}>📍 {selectedEvent.location}</p>
               
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <button 
@@ -261,11 +244,11 @@ const EventMap: React.FC = () => {
                     gap: '8px'
                   }}
                 >
-                  <span>🚗</span> ניווט לאירוע
+                  <span>🚗</span> Navigate
                 </button>
 
                 <button 
-                  onClick={() => handleOpenChat(selectedEvent)}
+                  onClick={() => onChatClick(selectedEvent)}
                   style={{
                     backgroundColor: '#34A853',
                     color: 'white',
@@ -280,7 +263,7 @@ const EventMap: React.FC = () => {
                     gap: '8px'
                   }}
                 >
-                  <span>💬</span> צ'אט אירוע
+                  <span>💬</span> Event Chat
                 </button>
               </div>
             </div>
@@ -289,7 +272,7 @@ const EventMap: React.FC = () => {
       </GoogleMap>
 
       <button style={buttonStyle} onClick={handleRecenter}>
-        <span>📍</span> המיקום שלי
+        <span>📍</span> My Location
       </button>
     </div>
   );
