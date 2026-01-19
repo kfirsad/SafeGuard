@@ -296,6 +296,3 @@ const EventMap: React.FC = () => {
 };
 
 export default EventMap;
-
-
-export default EventMap;
