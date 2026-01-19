@@ -1,7 +1,7 @@
 // src/lib/firebase.js
 import { initializeApp } from "firebase/app";
 import { getFirestore,doc,setDoc,getDoc,updateDoc,arrayUnion,addDoc, serverTimestamp,collection,runTransaction} from "firebase/firestore"; // Database
-import { getAuth } from "firebase/auth";           // Authentication
+import { getAuth, setPersistence, browserLocalPersistence } from "firebase/auth";           // Authentication
 import { getStorage } from "firebase/storage";     // File Storage
 import { create } from "domain";
 import { get } from "http";
@@ -24,6 +24,9 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
 export const userDB=getFirestore(app,"users");
 export const auth = getAuth(app);
+setPersistence(auth, browserLocalPersistence).catch((error) => {
+  console.error("Auth persistence error:", error);
+});
 export const storage = getStorage(app);
 
 export async function getNextEventId() {
@@ -37,8 +40,11 @@ export async function getNextEventId() {
   });
 }
 
-function normalizePhoneNumber(phone) {
-  let cleaned = phone.replace(/\D/g, ''); 
+export function normalizePhoneNumber(phone) {
+  if (typeof phone !== "string") {
+    return "";
+  }
+  let cleaned = phone.replace(/\D/g, '');
   
   if (cleaned.startsWith('972')) {
     cleaned = '0' + cleaned.substring(3);
