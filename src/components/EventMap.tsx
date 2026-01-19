@@ -275,7 +275,8 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
         <span>📍</span> My Location
       </button>
     </div>
-  );
-};
 
+  );
+
+};
 export default EventMap;

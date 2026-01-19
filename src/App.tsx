@@ -19,6 +19,7 @@ import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
 import AdminPanel from "./pages/AdminPanel";
 
+
 const queryClient = new QueryClient();
 
 const App = () => (
@@ -37,7 +38,7 @@ const App = () => (
           <Route path="/admin" element={<AdminPanel />} />
           <Route path="/report" element={<CreateReport />} />
           <Route path="/history" element={<ReportHistory />} />
-          <Route path="/report/:reportId/chat" element={<ReportChat />} />
+          <Route path="/event/:eventId/chat" element={<ReportChat />} />
           <Route path="/chat" element={<Chat />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/terms" element={<Terms />} />
