@@ -230,7 +230,7 @@ const ReportChat = () => {
         }
       }
 
-      // Smart Replies & Alt Text Logic...
+      // Smart Replies
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
         lastProcessedMessageId.current = lastUserMsg.id;
@@ -240,9 +240,18 @@ const ReportChat = () => {
         setIsGeneratingReplies(false);
       }
 
+      // --- Alt Text Logic ---
       const mediaToDescribe = msgs.find((m) => {
+         // 1. Must be an image without existing alt text
          if (m.type !== "image" || m.altText) return false;
+         
+         // 2. NEW CHECK: Must be from the USER (Citizen)
+         if (m.sender !== "user") return false;
+
+         // 3. Must not be currently processing
          if (processingAltRef.current.has(m.id)) return false;
+         
+         // 4. Must be recent (last 5 min)
          const now = Date.now();
          const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now;
          const isRecent = (now - msgTime) < 5 * 60 * 1000; 
