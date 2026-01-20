@@ -8,7 +8,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { auth, storage, userDB } from "@/lib/firebase"; 
+import { auth, createReport, getNextEventId, linkEventToUser, storage, userDB } from "@/lib/firebase"; 
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { addDoc, collection, doc, serverTimestamp, updateDoc } from "firebase/firestore";
 import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL } from "@/config/api";
@@ -194,6 +194,10 @@ const CreateReport = () => {
   const [videos, setVideos] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<{ name: string; url: string }[]>([]);
   const [videoPreviews, setVideoPreviews] = useState<{ name: string; url: string }[]>([]);
+  const [audio, setAudio] = useState<File[]>([]);
+  const [audioPreviews, setAudioPreviews] = useState<{ name: string; url: string }[]>([]);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activePicker, setActivePicker] = useState<"image" | "video" | null>(null);
   
@@ -201,6 +205,7 @@ const CreateReport = () => {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const imageCameraInputRef = useRef<HTMLInputElement>(null);
   const videoCameraInputRef = useRef<HTMLInputElement>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   
   const navigate = useNavigate();
   const { toast } = useToast();
@@ -216,6 +221,18 @@ const CreateReport = () => {
   
   const { isListening, toggleListening, hasSupport } = useSpeechRecognition(handleSpeechResult);
 
+  const removeImageAt = (index: number) => {
+    setImages((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeVideoAt = (index: number) => {
+    setVideos((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  const removeAudioAt = (index: number) => {
+    setAudio((prev) => prev.filter((_, i) => i !== index));
+  };
+
   // File Previews
   useEffect(() => {
     const urls = images.map((file) => ({ name: file.name, url: URL.createObjectURL(file) }));
@@ -229,7 +246,21 @@ const CreateReport = () => {
     return () => urls.forEach((item) => URL.revokeObjectURL(item.url));
   }, [videos]);
 
-  const uploadFiles = async (eventId: string, files: File[], folder: "images" | "videos") => {
+  useEffect(() => {
+    const urls = audio.map((file) => ({ name: file.name, url: URL.createObjectURL(file) }));
+    setAudioPreviews(urls);
+    return () => urls.forEach((item) => URL.revokeObjectURL(item.url));
+  }, [audio]);
+
+  useEffect(() => {
+    if (!isRecordingAudio) return;
+    const intervalId = window.setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+    return () => window.clearInterval(intervalId);
+  }, [isRecordingAudio]);
+
+  const uploadFiles = async (eventId: string, files: File[], folder: "images" | "videos" | "audio") => {
     if (!files.length) return [];
     const uploads = files.map(async (file) => {
       const storageRef = ref(storage, `events/${eventId}/${folder}/${Date.now()}_${file.name}`);
@@ -239,6 +270,35 @@ const CreateReport = () => {
     return Promise.all(uploads);
   };
 
+  const startAudioRecording = async () => {
+    if (isRecordingAudio) return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      const chunks: BlobPart[] = [];
+      recorder.ondataavailable = (e) => chunks.push(e.data);
+      recorder.onstop = () => {
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const file = new File([blob], `voice_${Date.now()}.webm`, { type: "audio/webm" });
+        setAudio((prev) => [...prev, file]);
+        stream.getTracks().forEach((track) => track.stop());
+      };
+      recorder.start();
+      mediaRecorderRef.current = recorder;
+      setRecordingSeconds(0);
+      setIsRecordingAudio(true);
+    } catch (error) {
+      console.error("Microphone access error:", error);
+      toast({ title: "Microphone blocked", description: "Please allow microphone access.", variant: "destructive" });
+    }
+  };
+
+  const stopAudioRecording = () => {
+    if (!mediaRecorderRef.current || !isRecordingAudio) return;
+    mediaRecorderRef.current.stop();
+    setIsRecordingAudio(false);
+  };
+
   const handleSubmit = async () => {
     if (!selectedCategory || !description.trim()) {
       toast({ title: "Missing Information", description: "Please select a category and add a description", variant: "destructive" });
@@ -246,10 +306,15 @@ const CreateReport = () => {
     }
 
     const currentUserPhone = auth.currentUser?.phoneNumber || "unknown";
+    if (currentUserPhone === "unknown") {
+      console.warn("No user logged in, report not saved to DB");
+      toast({ title: "Error", description: "You must be logged in to submit a report.", variant: "destructive" });
+      return;
+    }
     setIsSubmitting(true);
 
     try {
-      const eventId = `EVT-${Date.now()}`; 
+      const eventId = await getNextEventId();
       
       const eventData = {
         id: eventId,
@@ -263,7 +328,8 @@ const CreateReport = () => {
         responderPhone: null,
       };
 
-      await addDoc(collection(userDB, "events"), eventData);
+      await createReport(eventId, currentUserPhone, eventData);
+      await linkEventToUser(currentUserPhone, eventId);
       
       await addDoc(collection(userDB, "events", eventId, "messages"), {
           text: eventData.description,
@@ -272,14 +338,44 @@ const CreateReport = () => {
           type: "text",
       });
 
-      const [imageUrls, videoUrls] = await Promise.all([
+      const [imageUrls, videoUrls, audioUrls] = await Promise.all([
         uploadFiles(eventId, images, "images"),
         uploadFiles(eventId, videos, "videos"),
+        uploadFiles(eventId, audio, "audio"),
       ]);
 
       await updateDoc(doc(userDB, "events", eventId), {
-        images: imageUrls, videos: videoUrls
+        images: imageUrls, videos: videoUrls, audio: audioUrls
       });
+
+      const mediaMessages: Promise<unknown>[] = [];
+      imageUrls.forEach((url) => {
+        mediaMessages.push(addDoc(collection(userDB, "events", eventId, "messages"), {
+          text: url,
+          sender: "user",
+          createdAt: serverTimestamp(),
+          type: "image",
+        }));
+      });
+      videoUrls.forEach((url) => {
+        mediaMessages.push(addDoc(collection(userDB, "events", eventId, "messages"), {
+          text: url,
+          sender: "user",
+          createdAt: serverTimestamp(),
+          type: "video",
+        }));
+      });
+      audioUrls.forEach((url) => {
+        mediaMessages.push(addDoc(collection(userDB, "events", eventId, "messages"), {
+          text: url,
+          sender: "user",
+          createdAt: serverTimestamp(),
+          type: "voice",
+        }));
+      });
+      if (mediaMessages.length) {
+        await Promise.all(mediaMessages);
+      }
 
       toast({ title: "Report Submitted", description: "Responders notified." });
       navigate(`/event/${eventId}/chat`);
@@ -372,6 +468,12 @@ const CreateReport = () => {
         {/* Media Attachments */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
            <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Attachments</h2>
+           {isRecordingAudio && (
+             <div className="text-xs text-muted-foreground mb-2">
+               Recording... {String(Math.floor(recordingSeconds / 60)).padStart(2, "0")}:
+               {String(recordingSeconds % 60).padStart(2, "0")}
+             </div>
+           )}
            
            <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => setImages(prev => [...prev, ...Array.from(e.target.files || [])])} />
            <input ref={imageCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setImages(prev => [...prev, ...Array.from(e.target.files || [])])} />
@@ -385,6 +487,9 @@ const CreateReport = () => {
              <Button variant="outline" className="flex-1 h-20 flex-col gap-2" onClick={() => setActivePicker("video")} disabled={isSubmitting}>
                <Video className="w-6 h-6" /><span className="text-xs">Video</span>
              </Button>
+             <Button variant={isRecordingAudio ? "destructive" : "outline"} className="flex-1 h-20 flex-col gap-2" onClick={isRecordingAudio ? stopAudioRecording : startAudioRecording} disabled={isSubmitting}>
+               <Mic className="w-6 h-6" /><span className="text-xs">{isRecordingAudio ? "Stop" : "Audio"}</span>
+             </Button>
            </div>
            
            {activePicker && (
@@ -397,10 +502,55 @@ const CreateReport = () => {
             </div>
            )}
 
-           {(images.length > 0 || videos.length > 0) && (
-             <div className="mt-4 grid grid-cols-4 gap-2">
-                {imagePreviews.map(p => <img key={p.url} src={p.url} className="aspect-square rounded-md object-cover border border-border" />)}
-                {videoPreviews.map(p => <video key={p.url} src={p.url} className="aspect-square rounded-md object-cover border border-border" />)}
+           {(images.length > 0 || videos.length > 0 || audio.length > 0) && (
+             <div className="mt-4 space-y-3">
+                {(imagePreviews.length > 0 || videoPreviews.length > 0) && (
+                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                    {imagePreviews.map((p, index) => (
+                      <div key={p.url} className="relative">
+                        <img src={p.url} className="aspect-square rounded-md object-cover border border-border" />
+                        <button
+                          type="button"
+                          onClick={() => removeImageAt(index)}
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
+                          aria-label="Remove image"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                    {videoPreviews.map((p, index) => (
+                      <div key={p.url} className="relative">
+                        <video src={p.url} className="aspect-square rounded-md object-cover border border-border" />
+                        <button
+                          type="button"
+                          onClick={() => removeVideoAt(index)}
+                          className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/60 text-xs text-white hover:bg-black/80"
+                          aria-label="Remove video"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {audioPreviews.length > 0 && (
+                  <div className="space-y-2">
+                    {audioPreviews.map((p, index) => (
+                      <div key={p.url} className="flex items-center gap-2">
+                        <audio controls src={p.url} className="w-full" />
+                        <button
+                          type="button"
+                          onClick={() => removeAudioAt(index)}
+                          className="flex h-8 w-8 items-center justify-center rounded-full border border-border text-sm text-muted-foreground hover:text-foreground"
+                          aria-label="Remove audio"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
              </div>
            )}
         </motion.div>
