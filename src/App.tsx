@@ -25,7 +25,7 @@ const queryClient = new QueryClient();
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
-          <InstallPrompt />
+      <InstallPrompt />
       <TooltipProvider>
         <Toaster />
         <Sonner />
