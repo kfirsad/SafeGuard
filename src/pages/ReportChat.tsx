@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { 
   ArrowLeft, Send, Mic, Image as ImageIcon, Lock, 
   Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, 
-  Bot, Video, BrainCircuit 
+  Bot, Video, BrainCircuit, Headphones, VolumeX
 } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,7 @@ interface Message {
   translation?: string;
   language?: string;
   sender: "user" | "responder";
-  createdAt: any; // Changed from 'timestamp' to match your DB field
+  createdAt: any; 
   type: "text" | "image" | "voice" | "video";
   altText?: string; 
 }
@@ -126,15 +126,11 @@ const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> 
       })
     });
     
-    if (!res.ok) {
-        console.error("Gemini API Error:", await res.text());
-        return null;
-    }
+    if (!res.ok) return null;
 
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch (err) {
-    console.error("Gemini execution failed:", err);
     return null;
   }
 };
@@ -149,8 +145,8 @@ const ReportChat = () => {
   const [isClosed, setIsClosed] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [autoTTS, setAutoTTS] = useState(false); // <--- State for Auto Text-to-Speech
   
   const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
   const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
@@ -163,6 +159,7 @@ const ReportChat = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
+  const lastSpokenMessageId = useRef<string | null>(null); // <--- Track last auto-spoken message
   const processingAltRef = useRef<Set<string>>(new Set());
 
   // --- TTS Handler ---
@@ -219,6 +216,32 @@ const ReportChat = () => {
       setMessages(msgs);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
+      // --- AUTO-TTS LOGIC (Driver Mode) ---
+      // 1. Must be in Responder Mode
+      // 2. AutoTTS must be ON
+      // 3. Last message must be from User (Citizen)
+      // 4. Must be a NEW message we haven't spoken yet
+      if (isResponderMode && autoTTS && msgs.length > 0) {
+        const lastMsg = msgs[msgs.length - 1];
+        if (lastMsg.sender === "user" && lastMsg.id !== lastSpokenMessageId.current) {
+            // Check if it's a recent message (not history loading)
+            const now = Date.now();
+            const msgTime = lastMsg.createdAt?.toDate ? lastMsg.createdAt.toDate().getTime() : 0;
+            if (now - msgTime < 10000) { // Only auto-speak if received in last 10s
+                lastSpokenMessageId.current = lastMsg.id;
+                // Speak the translation if available (so FR understands), otherwise original text
+                const textToRead = lastMsg.translation || lastMsg.text; 
+                // Determine language to speak
+                const langToRead = lastMsg.translation ? responderLanguage : (lastMsg.language || 'en');
+                handleSpeak(textToRead, lastMsg.id, langToRead);
+            } else {
+                // If it's old history, just mark as read so we don't speak it later
+                lastSpokenMessageId.current = lastMsg.id;
+            }
+        }
+      }
+
+      // Smart Replies & Alt Text Logic...
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
         lastProcessedMessageId.current = lastUserMsg.id;
@@ -231,18 +254,14 @@ const ReportChat = () => {
       const mediaToDescribe = msgs.find((m) => {
          if (m.type !== "image" || m.altText) return false;
          if (processingAltRef.current.has(m.id)) return false;
-         
          const now = Date.now();
-         const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now; // Fixed: using createdAt
+         const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now;
          const isRecent = (now - msgTime) < 5 * 60 * 1000; 
-         
          return isRecent;
       });
 
       if (mediaToDescribe) {
-        console.log("🤖 Gemini: Analyzing new image...", mediaToDescribe.id);
         processingAltRef.current.add(mediaToDescribe.id);
-        
         setTimeout(async () => {
              const alt = await fetchAltTextFromGemini(mediaToDescribe.text);
              if (alt) {
@@ -254,7 +273,7 @@ const ReportChat = () => {
     });
 
     return () => { unsubReport(); unsubMessages(); };
-  }, [eventId]);
+  }, [eventId, isResponderMode, autoTTS]); // Added dependencies for AutoTTS
 
   const handleSendText = async (textOverride?: string) => {
     const textToSend = textOverride || newMessage;
@@ -348,12 +367,9 @@ const ReportChat = () => {
                     {message.altText ? (
                         <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
                             <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
-                            
-                            {/* Line Clamp 2 added here */}
                             <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white line-clamp-2 overflow-hidden text-ellipsis">
                                 {message.altText}
                             </p>
-                            
                             <button 
                                 onClick={(e) => { 
                                   e.preventDefault();
@@ -361,7 +377,6 @@ const ReportChat = () => {
                                   handleSpeak(message.altText!, message.id + "_alt", 'en'); 
                                 }} 
                                 className="h-7 w-7 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all shrink-0 border border-white/5 active:scale-95 text-white"
-                                title="Read description"
                             >
                                 {speakingMessageId === message.id + "_alt" ? (
                                   <Square className="w-3 h-3 fill-current animate-pulse"/> 
@@ -383,7 +398,6 @@ const ReportChat = () => {
                     <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
                 )}
 
-                {/* Fixed: Using 'createdAt' instead of 'timestamp' */}
                 <p className={`text-[9px] mt-1.5 text-right opacity-60`}>
                     {message.createdAt?.toDate ? message.createdAt.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Sending..."}
                 </p>
@@ -414,19 +428,32 @@ const ReportChat = () => {
 
             <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-3 bg-card/90 backdrop-blur border border-border px-3 py-1.5 rounded-full shadow-sm">
+                    {/* Citizen Selector */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><button onClick={() => setIsResponderMode(false)} className={`text-xs font-medium flex items-center gap-1.5 ${!isResponderMode ? "text-primary" : "text-muted-foreground"}`}><User className="w-3.5 h-3.5" /> Citizen</button></DropdownMenuTrigger>
                       <DropdownMenuContent>{Object.entries(SUPPORTED_LANGUAGES).map(([k,v]) => <DropdownMenuItem key={k} onClick={() => setUserLanguage(k as any)}>{v.name}</DropdownMenuItem>)}</DropdownMenuContent>
                     </DropdownMenu>
                     
+                    {/* Role Toggle Switch */}
                     <div onClick={() => setIsResponderMode(!isResponderMode)} className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${isResponderMode ? "bg-blue-600" : "bg-primary"}`}>
                         <motion.div className="w-3 h-3 bg-white rounded-full shadow-sm" animate={{ x: isResponderMode ? 16 : 0 }} />
                     </div>
 
+                    {/* Dispatch Selector */}
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild><button onClick={() => setIsResponderMode(true)} className={`text-xs font-medium flex items-center gap-1.5 ${isResponderMode ? "text-blue-600" : "text-muted-foreground"}`}><ShieldAlert className="w-3.5 h-3.5" /> Dispatch</button></DropdownMenuTrigger>
                       <DropdownMenuContent align="end">{Object.entries(SUPPORTED_LANGUAGES).map(([k,v]) => <DropdownMenuItem key={k} onClick={() => setResponderLanguage(k as any)}>{v.name}</DropdownMenuItem>)}</DropdownMenuContent>
                     </DropdownMenu>
+
+                    {/* NEW: Auto-TTS (Driver Mode) Toggle */}
+                    <div className="w-px h-4 bg-border mx-1" />
+                    <button 
+                      onClick={() => setAutoTTS(!autoTTS)} 
+                      className={`p-1.5 rounded-full transition-all ${autoTTS ? "bg-green-500/20 text-green-600" : "text-muted-foreground hover:bg-black/5"}`}
+                      title="Auto-Play Messages (Driver Mode)"
+                    >
+                      {autoTTS ? <Headphones className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                    </button>
                 </div>
             </div>
 
@@ -445,13 +472,13 @@ const ReportChat = () => {
                         disabled={isUploading} 
                         className="border-0 bg-transparent focus-visible:ring-0 h-9 px-2 shadow-none" 
                     />
+                     {/* Internal Mic Button - This is now the ONLY Mic button */}
                      <button onClick={toggleDictation} className={`absolute right-2 top-1/2 -translate-y-1/2 ${isDictating ? "text-red-500 animate-pulse" : "text-muted-foreground"}`}>{isDictating ? <MicOff className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
                 </div>
 
-                {newMessage.trim() ? (
+                {/* Send Button only appears when there is text. No external mic button. */}
+                {newMessage.trim() && (
                     <Button onClick={() => handleSendText()} disabled={isUploading} size="icon" className={`h-9 w-9 rounded-full shrink-0 ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</Button>
-                ) : (
-                    <Button variant="secondary" size="icon" className="h-9 w-9 rounded-full shrink-0" onClick={() => toggleDictation()}><Mic className="w-4 h-4" /></Button>
                 )}
             </div>
         </div>
