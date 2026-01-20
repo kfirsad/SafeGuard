@@ -249,22 +249,6 @@ useEffect(() => {
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-accent transition-colors" />
               </button>
-
-              {/* <button
-                onClick={() => handleRoleSelect("admin")}
-                className="w-full glass-card p-5 flex items-center gap-4 hover:bg-card/80 transition-all duration-200 group border border-primary/20"
-              >
-                <div className="w-14 h-14 rounded-xl bg-primary/20 flex items-center justify-center">
-                  <Settings className="w-7 h-7 text-primary" />
-                </div>
-                <div className="text-left flex-1">
-                  <h3 className="text-lg font-semibold text-foreground group-hover:text-primary transition-colors">
-                    Administrator
-                  </h3>
-                  <p className="text-sm text-muted-foreground">Manage app settings</p>
-                </div>
-                <ArrowRight className="w-5 h-5 text-muted-foreground group-hover:text-primary transition-colors" />
-              </button> */}
             </motion.div>
           )}
 

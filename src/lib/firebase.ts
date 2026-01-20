@@ -80,21 +80,6 @@ export async function findUser(phoneNumber){
   return docSnap.exists();
 }
 
-// export async function addEmergencyEvent(phoneNumber,eventData){
-//   const cleanedPhone = normalizePhoneNumber(phoneNumber);
-//   const userRef = doc(userDB, "report", cleanedPhone);
-//   try{
-//     await updateDoc(userRef, {
-//       Events:arrayUnion(eventData.id),
-//       lastActiveEvent: eventData.id,
-//       isOnActiveEvent: true
-//     });
-//     console.log("event successfully updated!");
-//   }catch(e){
-//     console.error("Error updating document: ", e);
-//   }
-// }
-
 export async function createReport(eventId, phoneNumber, eventData) {
   const cleanedPhone = normalizePhoneNumber(phoneNumber);
 

@@ -106,6 +106,9 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
   const mapRef = useRef<google.maps.Map | null>(null);
   const [mapInstance, setMapInstance] = useState<google.maps.Map | null>(null);
   const [userPos, setUserPos] = useState<{ lat: number; lng: number } | null>(null);
+  useEffect(() => {
+    console.log("selectedEvent", selectedEvent?.id || null);
+  }, [selectedEvent]);
 
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -163,7 +166,10 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
   if (!isLoaded) return <div>Loading map...</div>;
 
   return (
-    <div style={{ position: 'relative', height: '100%', width: '100%' }}>
+    <div
+      className={selectedEvent ? "map-iw-open" : "map-iw-closed"}
+      style={{ position: 'relative', height: '100%', width: '100%' }}
+    >
       <GoogleMap
         mapContainerStyle={containerStyle}
         center={userPos || DEFAULT_CENTER} 
@@ -191,7 +197,10 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
                 icon={(ev.severity === 'critical' || ev.severity === 'SOS') ? ICONS.SOS : ICONS.NORMAL}
                 title={ev.type}
                 // When clicking a marker, tell parent to select it
-                onClick={() => onEventSelect(ev)} 
+                onClick={() => {
+                  console.log("marker clicked", ev.id);
+                  onEventSelect(ev);
+                }} 
               />
             ))}
           </>
@@ -213,6 +222,20 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
               minWidth: '200px',
               position: 'relative'
             }}>
+              <div
+                style={{
+                  position: 'absolute',
+                  left: '50%',
+                  bottom: '-8px',
+                  width: '14px',
+                  height: '14px',
+                  background: '#fff',
+                  transform: 'translateX(-50%) rotate(45deg)',
+                  borderRadius: '2px',
+                  boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+                  pointerEvents: 'none',
+                }}
+              />
               <button
                 onClick={() => onEventSelect(null)}
                 style={{
