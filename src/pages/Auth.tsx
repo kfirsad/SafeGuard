@@ -147,6 +147,7 @@ useEffect(() => {
             title: "Welcome Responder!",
             description: "You're now logged in as a responder",
           });
+          localStorage.setItem("responderPhone", phone);
           navigate("/responder");
         }
         else{

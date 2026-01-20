@@ -1,76 +1,74 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { List, History, X, Navigation, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import EventMap, { EmergencyEvent } from "@/components/EventMap";
 import { motion, AnimatePresence } from "framer-motion";
-
-const mockEvents: EmergencyEvent[] = [
-  {
-    id: "ev1",
-    type: "medical",
-    severity: "critical",
-    description: "Car Accident - Head on collision",
-    location: "Sderot Ben Gurion 15, Netanya", 
-    lat: 32.3351609,
-    lng: 34.8922542,
-    distance: "0.5 km",
-    timestamp: "2 min ago",
-    status: "open",
-  },
-  {
-    id: "ev2",
-    type: "police",
-    severity: "critical",
-    description: "Suspicious individual reported",
-    location: "Ha-Oranim St 10, Netanya",
-    lat: 32.3462632,
-    lng: 34.9167057,
-    distance: "1.2 km",
-    timestamp: "5 min ago",
-    status: "assigned",
-  },
-  {
-    id: "ev3",
-    type: "medical",
-    severity: "low",
-    description: "Medical assistance requested",
-    location: "Divrei Chaim St 4, Netanya",
-    lat: 32.3499168,
-    lng: 34.8724600,
-    distance: "3.5 km",
-    timestamp: "20 min ago",
-    status: "open",
-  },
-  {
-    id: "ev4",
-    type: "fire",
-    severity: "critical",
-    description: "Heavy smoke reported",
-    location: "Ha-Melakha St 22, Netanya",
-    lat: 32.3649513,
-    lng: 34.9021512,
-    distance: "2.1 km",
-    timestamp: "12 min ago",
-    status: "in_progress",
-  },
-];
+import { getResponderByPhone } from "@/mockDB";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { userDB } from "@/lib/firebase";
 
 const ResponderDashboard = () => {
   const [showEventsList, setShowEventsList] = useState(false);
-  const [events] = useState<EmergencyEvent[]>(mockEvents);
+  const [events, setEvents] = useState<EmergencyEvent[]>([]);
   // --- New State: Tracks which event is active on the map ---
   const [selectedEvent, setSelectedEvent] = useState<EmergencyEvent | null>(null);
   
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const responderPhone = localStorage.getItem("responderPhone");
+    if (!responderPhone) {
+      setEvents([]);
+      return;
+    }
+    const responder = getResponderByPhone(responderPhone);
+    const eventIds = responder?.Events || [];
+    if (!eventIds.length) {
+      setEvents([]);
+      return;
+    }
+    const loadEvents = async () => {
+      const docs = await Promise.all(
+        eventIds.map((eventId) => getDoc(doc(userDB, "events", String(eventId))))
+      );
+      const updates: Promise<void>[] = [];
+      const next = docs
+        .filter((snap) => snap.exists())
+        .map((snap) => {
+          const data = snap.data();
+          if (responderPhone && (data.responderPhone === null || data.responderPhone === undefined || data.responderPhone === "")) {
+            updates.push(updateDoc(snap.ref, { responderPhone }));
+          }
+          return {
+            id: snap.id,
+            type: data.type,
+            severity: data.severity ?? "low",
+            description: data.description || "",
+            location: "",
+            lat: data.location?.latitude || 0,
+            lng: data.location?.longitude || 0,
+            distance: "",
+            timestamp: "",
+            status: data.isActive ? "open" : "closed",
+          } as EmergencyEvent;
+        })
+        .filter((event) => event.lat !== 0 || event.lng !== 0);
+      if (updates.length) {
+        void Promise.all(updates);
+      }
+      setEvents(next);
+    };
+    void loadEvents();
+  }, []);
 
   const activeCount = events.filter(e => e.status !== "closed").length;
   const criticalCount = events.filter(e => e.severity === "critical").length;
 
   const handleChatAction = (event: EmergencyEvent) => {
     if (!event || !event.id) return;
-    const chatUrl = `/report/${event.id}/chat`;
+    const chatUrl = `/event/${event.id}/chat`;
     window.open(chatUrl, '_self');
   };
 
