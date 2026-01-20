@@ -18,13 +18,14 @@ import Terms from "./pages/Terms";
 import Privacy from "./pages/Privacy";
 import NotFound from "./pages/NotFound";
 import AdminPanel from "./pages/AdminPanel";
-
+import InstallPrompt from "@/components/InstallPrompt";
 
 const queryClient = new QueryClient();
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <BrowserRouter>
+          <InstallPrompt />
       <TooltipProvider>
         <Toaster />
         <Sonner />
