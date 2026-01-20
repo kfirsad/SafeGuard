@@ -245,7 +245,7 @@ const ReportChat = () => {
          // 1. Must be an image without existing alt text
          if (m.type !== "image" || m.altText) return false;
          
-         // 2. NEW CHECK: Must be from the USER (Citizen)
+         // 2. Must be from the USER (Citizen) - FR images are ignored by AI
          if (m.sender !== "user") return false;
 
          // 3. Must not be currently processing
@@ -333,6 +333,9 @@ const ReportChat = () => {
         {messages.map((message) => {
           const isMe = message.sender === (isResponderMode ? "responder" : "user");
           
+          // Strict Rule: Show Alt Text UI ONLY if I am Responder AND message is from Citizen
+          const showAltTextUI = isResponderMode && message.sender === "user";
+
           return (
           <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] relative`}>
@@ -363,32 +366,37 @@ const ReportChat = () => {
                       loading="lazy"
                     />
                     
-                    {message.altText ? (
-                        <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
-                            <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
-                            <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white line-clamp-2 overflow-hidden text-ellipsis">
-                                {message.altText}
-                            </p>
-                            <button 
-                                onClick={(e) => { 
-                                  e.preventDefault();
-                                  e.stopPropagation(); 
-                                  handleSpeak(message.altText!, message.id + "_alt", 'en'); 
-                                }} 
-                                className="h-7 w-7 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all shrink-0 border border-white/5 active:scale-95 text-white"
-                            >
-                                {speakingMessageId === message.id + "_alt" ? (
-                                  <Square className="w-3 h-3 fill-current animate-pulse"/> 
-                                ) : (
-                                  <Volume2 className="w-3.5 h-3.5"/>
-                                )}
-                            </button>
-                        </div>
-                    ) : (
-                        <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
-                             <Loader2 className="w-3 h-3 animate-spin opacity-50" />
-                             <span className="text-[10px] opacity-50">AI analyzing...</span>
-                        </div>
+                    {/* Only show this section if viewed by Responder AND sent by Citizen */}
+                    {showAltTextUI && (
+                      <>
+                        {message.altText ? (
+                            <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
+                                <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
+                                <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white line-clamp-2 overflow-hidden text-ellipsis">
+                                    {message.altText}
+                                </p>
+                                <button 
+                                    onClick={(e) => { 
+                                      e.preventDefault();
+                                      e.stopPropagation(); 
+                                      handleSpeak(message.altText!, message.id + "_alt", 'en'); 
+                                    }} 
+                                    className="h-7 w-7 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all shrink-0 border border-white/5 active:scale-95 text-white"
+                                >
+                                    {speakingMessageId === message.id + "_alt" ? (
+                                      <Square className="w-3 h-3 fill-current animate-pulse"/> 
+                                    ) : (
+                                      <Volume2 className="w-3.5 h-3.5"/>
+                                    )}
+                                </button>
+                            </div>
+                        ) : (
+                            <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
+                                <Loader2 className="w-3 h-3 animate-spin opacity-50" />
+                                <span className="text-[10px] opacity-50">AI analyzing...</span>
+                            </div>
+                        )}
+                      </>
                     )}
                   </div>
                 )}
