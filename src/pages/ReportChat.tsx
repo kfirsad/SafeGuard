@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { 
   ArrowLeft, Send, Mic, Image as ImageIcon, Lock, 
   Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, 
-  Bot, BrainCircuit, Headphones, VolumeX
+  Bot, BrainCircuit, Headphones, VolumeX, X, FileVideo
 } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -142,6 +142,9 @@ const ReportChat = () => {
   const [isClosed, setIsClosed] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
+  // New State for Media Staging
+  const [selectedMedia, setSelectedMedia] = useState<{ file: File; type: "image" | "video"; preview: string } | null>(null);
+
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [autoTTS, setAutoTTS] = useState(false); 
   
@@ -230,22 +233,20 @@ const ReportChat = () => {
         }
       }
 
-      // --- Smart Replies Logic (Only Text) ---
+      // Smart Replies (Only Text)
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
-        lastProcessedMessageId.current = lastUserMsg.id; // Always update ID to prevent re-processing
+        lastProcessedMessageId.current = lastUserMsg.id; 
         
-        // Only call AI if the message is TEXT
         if (lastUserMsg.type === "text") {
             setIsGeneratingReplies(true);
             const snippets = await fetchSmartReplies(lastUserMsg.translation || lastUserMsg.text);
             setSuggestedSnippets(snippets);
             setIsGeneratingReplies(false);
         }
-        // If it's an image/video, we do nothing -> Old suggestions stay.
       }
 
-      // --- Alt Text Logic ---
+      // Alt Text Logic
       const mediaToDescribe = msgs.find((m) => {
          if (m.type !== "image" || m.altText) return false;
          if (m.sender !== "user") return false;
@@ -271,42 +272,79 @@ const ReportChat = () => {
     return () => { unsubReport(); unsubMessages(); };
   }, [eventId, isResponderMode, autoTTS]); 
 
-  const handleSendText = async (textOverride?: string) => {
+  // --- Handlers ---
+
+  // 1. Unified Send Handler (Text + Media)
+  const handleSend = async (textOverride?: string) => {
+    if (isClosed || isUploading) return;
+    
     const textToSend = textOverride || newMessage;
-    if (!textToSend.trim() || isClosed) return;
-    setNewMessage("");
+    const hasText = textToSend.trim().length > 0;
+    const hasMedia = !!selectedMedia;
+
+    if (!hasText && !hasMedia) return;
+
+    setIsUploading(true);
+    setNewMessage(""); // Clear input immediately
     
     const finalLang = isResponderMode ? responderLanguage : userLanguage;
     const targetLang = isResponderMode ? userLanguage : responderLanguage;
-    const trans = await translateText(textToSend, finalLang, targetLang);
 
-    await addDoc(collection(db, "events", eventId, "messages"), {
-      text: textToSend,
-      translation: trans,
-      language: finalLang,
-      sender: isResponderMode ? "responder" : "user",
-      createdAt: serverTimestamp(),
-      type: "text",
-    });
+    try {
+        // Step A: Upload Media if exists
+        if (hasMedia && selectedMedia) {
+            const folder = selectedMedia.type === "image" ? "" : "videos/";
+            const storageRef = ref(storage, `events/${eventId}/${folder}${Date.now()}_${selectedMedia.file.name}`);
+            await uploadBytes(storageRef, selectedMedia.file);
+            const url = await getDownloadURL(storageRef);
+
+            await addDoc(collection(db, "events", eventId!, "messages"), {
+                text: url,
+                sender: isResponderMode ? "responder" : "user",
+                createdAt: serverTimestamp(),
+                type: selectedMedia.type,
+            });
+            
+            // Clear media state
+            setSelectedMedia(null);
+            if (fileInputRef.current) fileInputRef.current.value = "";
+            if (videoInputRef.current) videoInputRef.current.value = "";
+        }
+
+        // Step B: Send Text if exists
+        if (hasText) {
+            const trans = await translateText(textToSend, finalLang, targetLang);
+            await addDoc(collection(db, "events", eventId!, "messages"), {
+                text: textToSend,
+                translation: trans,
+                language: finalLang,
+                sender: isResponderMode ? "responder" : "user",
+                createdAt: serverTimestamp(),
+                type: "text",
+            });
+        }
+    } catch (e) {
+        console.error("Send failed", e);
+    } finally {
+        setIsUploading(false);
+    }
   };
 
-  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
+  // 2. Handle File Selection (Staging)
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
     const file = e.target.files?.[0];
-    if (!file || !eventId) return;
-    setIsUploading(true);
-    try {
-        const folder = type === "image" ? "" : "videos/";
-        const storageRef = ref(storage, `events/${eventId}/${folder}${Date.now()}_${file.name}`);
-        await uploadBytes(storageRef, file);
-        const url = await getDownloadURL(storageRef);
-        
-        await addDoc(collection(db, "events", eventId, "messages"), {
-            text: url,
-            sender: isResponderMode ? "responder" : "user",
-            createdAt: serverTimestamp(),
-            type: type,
-        });
-    } catch(e) { console.error(e); } finally { setIsUploading(false); }
+    if (!file) return;
+    
+    // Create preview URL
+    const previewUrl = URL.createObjectURL(file);
+    setSelectedMedia({ file, type, preview: previewUrl });
+  };
+
+  // 3. Cancel Media
+  const cancelMedia = () => {
+    setSelectedMedia(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+    if (videoInputRef.current) videoInputRef.current.value = "";
   };
 
   return (
@@ -420,7 +458,7 @@ const ReportChat = () => {
                             <span className="text-[10px] font-bold text-blue-500 uppercase">AI Assist</span>
                         </div>
                         {suggestedSnippets.map((snippet, idx) => (
-                            <button key={idx} onClick={() => handleSendText(snippet)} className="bg-card border border-border/50 hover:bg-blue-600 hover:text-white text-xs px-3 py-1.5 rounded-full shadow-sm transition-colors whitespace-nowrap">
+                            <button key={idx} onClick={() => handleSend(snippet)} className="bg-card border border-border/50 hover:bg-blue-600 hover:text-white text-xs px-3 py-1.5 rounded-full shadow-sm transition-colors whitespace-nowrap">
                                 {snippet}
                             </button>
                         ))}
@@ -447,7 +485,7 @@ const ReportChat = () => {
                       <DropdownMenuContent align="end">{Object.entries(SUPPORTED_LANGUAGES).map(([k,v]) => <DropdownMenuItem key={k} onClick={() => setResponderLanguage(k as any)}>{v.name}</DropdownMenuItem>)}</DropdownMenuContent>
                     </DropdownMenu>
 
-                    {/* NEW: Auto-TTS (Driver Mode) Toggle - Only for Responder */}
+                    {/* Auto-TTS (Driver Mode) Toggle */}
                     {isResponderMode && (
                       <>
                         <div className="w-px h-4 bg-border mx-1" />
@@ -466,7 +504,29 @@ const ReportChat = () => {
                 </div>
             </div>
 
-            {/* Input Bubble - UNIFIED STYLING (Fixed "Grayed" Issue) */}
+            {/* --- Media Preview Area (Staging) --- */}
+            <AnimatePresence>
+                {selectedMedia && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="mb-2 flex items-center gap-3 bg-card/95 border border-border p-2 rounded-xl shadow-lg max-w-sm mx-auto backdrop-blur-sm">
+                        <div className="relative shrink-0 w-12 h-12 bg-black/10 rounded-lg overflow-hidden border border-border">
+                            {selectedMedia.type === "image" ? (
+                                <img src={selectedMedia.preview} className="w-full h-full object-cover" />
+                            ) : (
+                                <div className="w-full h-full flex items-center justify-center bg-black/80"><FileVideo className="w-5 h-5 text-white" /></div>
+                            )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                            <p className="text-xs font-medium truncate">{selectedMedia.file.name}</p>
+                            <p className="text-[10px] text-muted-foreground">Ready to send</p>
+                        </div>
+                        <button onClick={cancelMedia} className="p-1.5 rounded-full hover:bg-destructive/10 hover:text-destructive transition-colors">
+                            <X className="w-4 h-4" />
+                        </button>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* Input Bubble */}
             <div className="flex items-center gap-2 p-1.5 rounded-3xl border shadow-lg transition-all bg-background border-border">
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
@@ -478,15 +538,16 @@ const ReportChat = () => {
                         placeholder={isDictating ? "Listening..." : isResponderMode ? SUPPORTED_LANGUAGES[responderLanguage].placeholder : SUPPORTED_LANGUAGES[userLanguage].placeholder} 
                         value={newMessage} 
                         onChange={(e) => setNewMessage(e.target.value)} 
-                        onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSendText()} 
+                        onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSend()} 
                         disabled={isUploading} 
                         className="border-0 bg-transparent focus-visible:ring-0 h-9 px-2 shadow-none" 
                     />
                      <button onClick={toggleDictation} className={`absolute right-2 top-1/2 -translate-y-1/2 ${isDictating ? "text-red-500 animate-pulse" : "text-muted-foreground"}`}>{isDictating ? <MicOff className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
                 </div>
 
-                {newMessage.trim() && (
-                    <Button onClick={() => handleSendText()} disabled={isUploading} size="icon" className={`h-9 w-9 rounded-full shrink-0 ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</Button>
+                {/* Show SEND button if Text OR Media is present */}
+                {(newMessage.trim() || selectedMedia) && (
+                    <Button onClick={() => handleSend()} disabled={isUploading} size="icon" className={`h-9 w-9 rounded-full shrink-0 ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</Button>
                 )}
             </div>
         </div>
