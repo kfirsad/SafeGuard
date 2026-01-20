@@ -28,7 +28,7 @@ const containerStyle = {
   borderRadius: '0px'
 };
 
-const LIBRARIES: ("marker" | "drawing" | "geometry" | "localContext" | "places" | "visualization")[] = ['marker'];
+const LIBRARIES: ("marker" | "drawing" | "geometry" | "places" | "visualization")[] = ['marker'];
 
 const buttonStyle: React.CSSProperties = {
   position: 'absolute',
