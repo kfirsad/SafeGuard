@@ -1,341 +1,466 @@
-import { useState, useRef, useEffect } from "react";
-import { motion } from "framer-motion";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
-import { ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, Loader2, Video } from "lucide-react"; // Added StopCircle
+import { 
+  ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, 
+  Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, ChevronDown, 
+  Bot, MessageSquarePlus, Video 
+} from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 // Firebase Imports
-import { userDB, storage } from "@/lib/firebase"; 
+import { userDB as db, storage } from "@/lib/firebase"; 
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
 import { 
-  collection, 
-  query, 
-  orderBy, 
-  onSnapshot, 
-  addDoc, 
-  serverTimestamp, 
-  doc
+  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc
 } from "firebase/firestore";
+
+// --- Configuration ---
+import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL } from "@/config/api";
+
+// Cache for LLM responses to reduce API calls
+const responseCache = new Map<string, { responses: string[], timestamp: number }>();
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache
+
+const SUPPORTED_LANGUAGES = {
+  en: { name: "English", placeholder: "Type a message...", code: "en" },
+  es: { name: "Spanish", placeholder: "Escribe un mensaje...", code: "es" },
+  fr: { name: "French", placeholder: "Écrire un message...", code: "fr" },
+  de: { name: "German", placeholder: "Nachricht schreiben...", code: "de" },
+  it: { name: "Italian", placeholder: "Scrivi un messaggio...", code: "it" },
+  ru: { name: "Russian", placeholder: "Введите сообщение...", code: "ru" },
+  ja: { name: "Japanese", placeholder: "メッセージを入力...", code: "ja" },
+  zh: { name: "Chinese", placeholder: "输入消息...", code: "zh" },
+  he: { name: "Hebrew", placeholder: "כתוב הודעה...", code: "he" },
+};
+
+const getBrowserLang = (): keyof typeof SUPPORTED_LANGUAGES => {
+    const lang = navigator.language.split('-')[0];
+    return (Object.keys(SUPPORTED_LANGUAGES).includes(lang) ? lang : 'en') as keyof typeof SUPPORTED_LANGUAGES;
+};
 
 interface Message {
   id: string;
   text: string;
+  translation?: string;
+  language?: string;
   sender: "user" | "responder";
   timestamp: any; 
   type: "text" | "image" | "voice" | "video";
 }
 
+// --- Smart Fallback System ---
+const getSmartReplies = (text: string): string[] => {
+    const t = text.toLowerCase();
+    
+    if (t.includes("fire") || t.includes("smoke") || t.includes("burn") || t.includes("flame")) {
+        return ["Evacuate immediately!", "Close all doors behind you", "Fire department on the way"];
+    }
+    
+    if (t.includes("hurt") || t.includes("blood") || t.includes("wound") || t.includes("cut") || t.includes("bleeding")) {
+        return ["Apply firm pressure to wound", "Don't move the injured area", "Ambulance dispatched to you"];
+    }
+    
+    if (t.includes("breath") || t.includes("chest") || t.includes("heart") || t.includes("pain")) {
+        return ["Stay calm, breathe slowly", "Sit down, don't move", "Paramedics on their way"];
+    }
+    
+    if (t.includes("attack") || t.includes("danger") || t.includes("threat") || t.includes("weapon") || t.includes("gun")) {
+        return ["Find safe location now", "Police have been notified", "Stay hidden if possible"];
+    }
+    
+    if (t.includes("crash") || t.includes("accident") || t.includes("car") || t.includes("collision")) {
+        return ["Stay in vehicle if safe", "Turn on hazard lights", "Emergency services coming"];
+    }
+    
+    if (t.includes("where") || t.includes("location") || t.includes("address")) {
+        return ["Share your exact location", "What's your address?", "Any nearby landmarks?"];
+    }
+    
+    if (t.includes("help") || t.includes("please") || t.includes("need")) {
+        return ["Help is on the way", "Stay calm, we're here", "Units dispatched"];
+    }
+    
+    return ["What is your emergency?", "Are you in a safe location?", "Can you describe the situation?"];
+};
+
+// --- AI LOGIC using Groq Llama 3.3 70B (Best free model!) ---
+const fetchSmartReplies = async (lastUserMessage: string): Promise<string[]> => {
+  // Check cache first
+  const cacheKey = lastUserMessage.toLowerCase().trim();
+  const cached = responseCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    console.log("✅ Using cached AI response");
+    return cached.responses;
+  }
+
+  try {
+    const response = await fetch(GROQ_API_URL, {
+      method: "POST",
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert 911 emergency dispatcher AI assistant. Your role is to provide quick, professional, and helpful responses to emergency situations.\n\nRULES:\n1. Provide EXACTLY 3 urgent response options\n2. Each option must be 5-8 words maximum\n3. Separate options with the | character\n4. Be direct, clear, and actionable\n5. Prioritize safety and reassurance\n6. Use simple, urgent language\n\nEXAMPLE OUTPUT: \"Stay calm and breathe|What is your exact location?|Help is on the way\""
+          },
+          {
+            role: "user",
+            content: `Emergency situation: "${lastUserMessage}"\n\nProvide 3 urgent dispatcher responses (max 8 words each, separated by |):`
+          }
+        ],
+        temperature: 0.8,
+        max_tokens: 120,
+        top_p: 0.9,
+        stream: false
+      }),
+    });
+
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.warn("⚠️ Groq API Error:", response.status, errorText);
+        throw new Error(`API Error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content || "";
+    
+    console.log("🤖 AI Response:", content);
+    
+    if (content) {
+      const responses = content
+        .split("|")
+        .map((s: string) => s.trim())
+        .map((s: string) => s.replace(/^[\d\-\.\)\*]\s*/, "")) // Remove numbering/bullets
+        .map((s: string) => s.replace(/^["']|["']$/g, "")) // Remove quotes
+        .filter((s: string) => s.length > 5 && s.length < 100)
+        .filter((s: string) => !s.toLowerCase().includes("example")) // Remove meta text
+        .slice(0, 3);
+      
+      if (responses.length === 3) {
+        console.log("✅ Got 3 valid AI responses");
+        responseCache.set(cacheKey, { responses, timestamp: Date.now() });
+        return responses;
+      }
+      
+      console.warn("⚠️ AI returned invalid format, using fallback");
+    }
+    
+    throw new Error("No valid response from AI");
+
+  } catch (error) {
+    console.warn("❌ AI failed, using smart fallback:", error);
+    const fallbackResponses = getSmartReplies(lastUserMessage);
+    responseCache.set(cacheKey, { responses: fallbackResponses, timestamp: Date.now() });
+    return fallbackResponses;
+  }
+};
+
+const translateText = async (text: string, sourceLang: string, targetLang: string) => {
+    if (sourceLang === targetLang) return null;
+    try {
+        const response = await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${sourceLang}|${targetLang}`);
+        const data = await response.json();
+        return data.responseStatus === 200 ? data.responseData.translatedText : null;
+    } catch (error) { return null; }
+};
+
+// --- Hooks ---
+const useSpeechRecognition = (onResult: (text: string) => void, languageCode: string) => {
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+
+  useEffect(() => {
+    const SpeechConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (SpeechConstructor) {
+      const recognition = new SpeechConstructor();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = languageCode === 'en' ? 'en-US' : languageCode;
+      recognition.onresult = (event: any) => {
+        let transcript = '';
+        for (let i = event.resultIndex; i < event.results.length; i++) transcript += event.results[i][0].transcript;
+        if (transcript) onResult(transcript);
+      };
+      recognition.onend = () => setIsListening(false);
+      recognitionRef.current = recognition;
+    }
+  }, [languageCode]);
+
+  const toggleListening = useCallback(() => {
+    if (!recognitionRef.current) return;
+    if (isListening) { recognitionRef.current.stop(); setIsListening(false); }
+    else { recognitionRef.current.start(); setIsListening(true); }
+  }, [isListening]);
+
+  return { isListening, toggleListening, hasSupport: !!recognitionRef.current };
+};
+
+// --- Component ---
 const ReportChat = () => {
   const { eventId } = useParams();
+  const navigate = useNavigate();
+  
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  
-  // Media States
-  const [isRecording, setIsRecording] = useState(false);
-  const [isUploading, setIsUploading] = useState(false);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  
-  // Dev Mode State
-  const [isDevResponder, setIsDevResponder] = useState(false); 
-  
-  // Report Status State
   const [isClosed, setIsClosed] = useState(false);
-  const [reportSummary, setReportSummary] = useState<string | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  
+  const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
+  const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
+  const [isResponderMode, setIsResponderMode] = useState(false);
+  
+  const [suggestedSnippets, setSuggestedSnippets] = useState<string[]>([]);
+  const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const navigate = useNavigate();
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const lastProcessedMessageId = useRef<string | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  // STT
+  const handleDictationResult = (text: string) => setNewMessage(prev => prev.endsWith(text) ? prev : text);
+  const currentDictationLang = isResponderMode ? responderLanguage : userLanguage;
+  const { isListening: isDictating, toggleListening: toggleDictation, hasSupport: hasDictationSupport } = useSpeechRecognition(handleDictationResult, currentDictationLang);
+
+  // TTS
+  const handleSpeak = (text: string, id: string, language: string) => {
+    if (speakingMessageId === id) { window.speechSynthesis.cancel(); setSpeakingMessageId(null); return; }
+    window.speechSynthesis.cancel();
+    setSpeakingMessageId(id);
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = language;
+    utterance.onend = () => setSpeakingMessageId(null);
+    window.speechSynthesis.speak(utterance);
   };
-  useEffect(() => scrollToBottom(), [messages]);
 
-  // Fetch Report Data
+  // Listeners
   useEffect(() => {
     if (!eventId) return;
-    const unsubscribe = onSnapshot(doc(userDB, "events", eventId), (doc) => {
-      if (doc.exists()) {
-        const data = doc.data();
-        setIsClosed(data.status === "closed");
-        setReportSummary(data.summary || null);
-      }
+    const unsubReport = onSnapshot(doc(db, "events", eventId), (doc) => {
+        if (doc.exists()) setIsClosed(doc.data().status === "closed");
     });
-    return () => unsubscribe();
-  }, [eventId]);
+    
+    const q = query(collection(db, "events", eventId, "messages"), orderBy("createdAt", "asc"));
+    const unsubMessages = onSnapshot(q, async (snapshot) => {
+        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+        setMessages(msgs);
+        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-  // Listen to Messages
-  useEffect(() => {
-    if (!eventId) return;
-    const q = query(collection(userDB, "events", eventId, "messages"), orderBy("createdAt", "asc"));
-    const unsubscribe = onSnapshot(q, (snapshot) => {
-      setMessages(snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })) as Message[]);
-    });
-    return () => unsubscribe();
-  }, [eventId]);
-
-  // --- 1. HANDLE IMAGE UPLOAD ---
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !eventId) return;
-
-    setIsUploading(true);
-    try {
-      const storageRef = ref(storage, `events/${eventId}/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-      
-      await sendMessage(downloadURL, "image");
-    } catch (error) {
-      console.error("Upload failed:", error);
-      alert("Failed to upload image.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  const handleVideoSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !eventId) return;
-
-    setIsUploading(true);
-    try {
-      const storageRef = ref(storage, `events/${eventId}/videos/${Date.now()}_${file.name}`);
-      await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(storageRef);
-
-      await sendMessage(downloadURL, "video");
-    } catch (error) {
-      console.error("Upload failed:", error);
-      alert("Failed to upload video.");
-    } finally {
-      setIsUploading(false);
-    }
-  };
-
-  // --- 2. HANDLE VOICE RECORDING ---
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const recorder = new MediaRecorder(stream);
-      const chunks: BlobPart[] = [];
-
-      recorder.ondataavailable = (e) => chunks.push(e.data);
-
-      recorder.onstop = async () => {
-        setIsUploading(true);
-        try {
-          // Create audio blob
-          const blob = new Blob(chunks, { type: "audio/webm" });
-          
-          // Upload to Firebase
-          const storageRef = ref(storage, `events/${eventId}/voice_${Date.now()}.webm`);
-          await uploadBytes(storageRef, blob);
-          const downloadURL = await getDownloadURL(storageRef);
-
-          // Send Message
-          await sendMessage(downloadURL, "voice");
-        } catch (error) {
-          console.error("Voice upload failed:", error);
-        } finally {
-          setIsUploading(false);
-          // Release microphone
-          stream.getTracks().forEach(track => track.stop());
+        const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
+        
+        // Only generate AI replies if:
+        // 1. There's a user message
+        // 2. We haven't processed this specific message ID yet
+        // 3. We're not currently generating
+        if (lastUserMsg && 
+            lastUserMsg.id !== lastProcessedMessageId.current && 
+            !isGeneratingReplies) {
+            
+            console.log("🆕 New user message detected:", lastUserMsg.id);
+            lastProcessedMessageId.current = lastUserMsg.id;
+            setIsGeneratingReplies(true);
+            
+            const textToAnalyze = lastUserMsg.translation || lastUserMsg.text;
+            const snippets = await fetchSmartReplies(textToAnalyze);
+            setSuggestedSnippets(snippets);
+            setIsGeneratingReplies(false);
         }
-      };
+    });
+    return () => { unsubReport(); unsubMessages(); };
+  }, [eventId, isGeneratingReplies]);
 
-      recorder.start();
-      mediaRecorderRef.current = recorder;
-      setIsRecording(true);
-    } catch (err) {
-      console.error("Microphone error:", err);
-      alert("Could not access microphone. Please check permissions.");
-    }
-  };
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && isRecording) {
-      mediaRecorderRef.current.stop(); // This triggers the 'onstop' event above
-      setIsRecording(false);
-    }
-  };
-
-  // Shared Send Function
   const sendMessage = async (content: string, type: "text" | "image" | "voice" | "video") => {
     if (!eventId) return;
-    await addDoc(collection(userDB, "events", eventId, "messages"), {
+    let finalTranslation = null;
+    let finalLang = "en";
+
+    if (type === "text") {
+        setIsUploading(true);
+        if (isResponderMode) {
+            finalLang = responderLanguage;
+            finalTranslation = await translateText(content, responderLanguage, userLanguage);
+        } else {
+            finalLang = userLanguage;
+            finalTranslation = await translateText(content, userLanguage, responderLanguage);
+        }
+        setIsUploading(false);
+    }
+
+    await addDoc(collection(db, "events", eventId, "messages"), {
       text: content,
-      sender: isDevResponder ? "responder" : "user",
+      translation: finalTranslation,
+      language: finalLang,
+      sender: isResponderMode ? "responder" : "user",
       createdAt: serverTimestamp(),
       type: type,
     });
   };
 
-  const handleSendText = async () => {
-    if (!newMessage.trim() || isClosed) return;
-    await sendMessage(newMessage, "text");
+  const handleSendText = async (textOverride?: string) => {
+    const textToSend = textOverride || newMessage;
+    if (!textToSend.trim() || isClosed) return;
     setNewMessage("");
+    await sendMessage(textToSend, "text");
   };
 
-  const formatTime = (timestamp: any) => {
-    if (!timestamp) return "Sending...";
-    const date = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
-    return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
+    const file = e.target.files?.[0];
+    if (!file || !eventId) return;
+    setIsUploading(true);
+    try {
+        const folder = type === "image" ? "" : "videos/";
+        const storageRef = ref(storage, `events/${eventId}/${folder}${Date.now()}_${file.name}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        await sendMessage(url, type);
+    } catch(e) { console.error(e); } finally { setIsUploading(false); }
+  };
+
+  const startRecordingAudio = async () => {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const recorder = new MediaRecorder(stream);
+        const chunks: BlobPart[] = [];
+        recorder.ondataavailable = e => chunks.push(e.data);
+        recorder.onstop = async () => {
+            setIsUploading(true);
+            const blob = new Blob(chunks, { type: "audio/webm" });
+            const storageRef = ref(storage, `events/${eventId}/voice_${Date.now()}.webm`);
+            await uploadBytes(storageRef, blob);
+            const url = await getDownloadURL(storageRef);
+            await sendMessage(url, "voice");
+            setIsUploading(false);
+            stream.getTracks().forEach(t => t.stop());
+        };
+        recorder.start();
+        mediaRecorderRef.current = recorder;
+        setIsRecordingAudio(true);
+    } catch(e) { alert("Microphone blocked"); }
+  };
+
+  const stopRecordingAudio = () => {
+    if (mediaRecorderRef.current && isRecordingAudio) {
+        mediaRecorderRef.current.stop();
+        setIsRecordingAudio(false);
+    }
   };
 
   return (
-    <div className="min-h-screen bg-background flex flex-col">
-      {/* Header */}
+    <div className="min-h-screen bg-background flex flex-col relative">
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-3 px-4 py-3">
-          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
-            <ArrowLeft className="w-5 h-5" />
-          </Button>
+          <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft className="w-5 h-5" /></Button>
           <div className="flex-1">
             <h1 className="text-base font-semibold text-foreground">Event #{eventId}</h1>
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <Globe className="w-3 h-3" />
+                <span>{SUPPORTED_LANGUAGES[userLanguage].name} ↔ {SUPPORTED_LANGUAGES[responderLanguage].name}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-52">
         {messages.map((message) => (
-          <motion.div
-            key={message.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}
-          >
-            <div
-              className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${
-                message.sender === "user"
-                  ? "bg-primary text-primary-foreground rounded-br-md"
-                  : "bg-secondary text-secondary-foreground rounded-bl-md"
-              }`}
-            >
-              {/* --- DYNAMIC CONTENT RENDERING --- */}
-              {message.type === "text" && <p className="text-sm">{message.text}</p>}
-              
-              {message.type === "image" && (
-                <img 
-                  src={message.text} 
-                  alt="Sent image" 
-                  className="rounded-lg max-h-60 w-auto object-cover border border-white/20" 
-                />
-              )}
-
-              {message.type === "video" && (
-                <video
-                  src={message.text}
-                  controls
-                  className="rounded-lg max-h-60 w-auto object-cover border border-white/20"
-                />
-              )}
-
-              {message.type === "voice" && (
-                <div className="flex items-center gap-2 min-w-[200px]">
-                  <audio controls src={message.text} className="h-8 w-full max-w-[250px]" />
+          <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
+            <div className={`max-w-[85%] rounded-2xl px-4 py-3 shadow-sm ${message.sender === "user" ? "bg-primary text-primary-foreground rounded-br-md" : "bg-secondary text-secondary-foreground rounded-bl-md"}`}>
+              {message.type === "text" && (
+                <div className="flex flex-col gap-1">
+                    <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm leading-relaxed">{message.text}</p>
+                        <button onClick={() => handleSpeak(message.text, message.id, message.language || 'en')} className="p-1 rounded-full opacity-50 hover:opacity-100 shrink-0">
+                            {speakingMessageId === message.id ? <Square className="w-3 h-3 fill-current"/> : <Volume2 className="w-3 h-3"/>}
+                        </button>
+                    </div>
+                    {message.translation && (
+                        <div className={`mt-1 pt-2 border-t text-xs italic flex flex-col gap-0.5 ${message.sender === "user" ? "border-primary-foreground/20" : "border-foreground/10"}`}>
+                            <div className="flex items-center gap-1.5"><Sparkles className="w-3 h-3" /><span className="font-medium">{message.translation}</span></div>
+                        </div>
+                    )}
                 </div>
               )}
-
-              <p className={`text-[10px] mt-1 text-right ${message.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>
-                {formatTime(message.timestamp)}
-              </p>
+              {message.type === "image" && <img src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />}
+              {message.type === "video" && <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />}
+              {message.type === "voice" && <audio controls src={message.text} className="h-8 w-[200px]" />}
+              <p className={`text-[10px] mt-1 text-right ${message.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.timestamp?.toDate ? message.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "..."}</p>
             </div>
           </motion.div>
         ))}
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       {!isClosed ? (
-        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4 pb-8 md:pb-4">
-          
-          {/* Dev Mode Toggle */}
-          <div className="flex items-center gap-2 mb-3 justify-center bg-secondary/30 p-2 rounded-lg w-fit mx-auto">
-            <input 
-              type="checkbox" 
-              checked={isDevResponder} 
-              onChange={(e) => setIsDevResponder(e.target.checked)}
-              id="dev-toggle"
-              className="accent-primary"
-            />
-            <label htmlFor="dev-toggle" className="text-xs font-medium text-muted-foreground cursor-pointer select-none">
-              Dev Mode: Send as {isDevResponder ? "Responder" : "User"}
-            </label>
-          </div>
+        <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent pb-6 pt-4">
+            <AnimatePresence>
+                {isResponderMode && suggestedSnippets.length > 0 && (
+                    <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex gap-2 overflow-x-auto pb-3 pt-1 px-1 no-scrollbar">
+                        <div className="flex items-center gap-2 p-1.5 bg-blue-500/10 rounded-lg shrink-0 border border-blue-500/20">
+                            {isGeneratingReplies ? <Loader2 className="w-4 h-4 text-blue-500 animate-spin" /> : <Bot className="w-4 h-4 text-blue-500" />}
+                            <span className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">AI Suggests</span>
+                        </div>
+                        {suggestedSnippets.map((snippet, idx) => (
+                            <button key={idx} onClick={() => handleSendText(snippet)} className="bg-card/80 backdrop-blur border border-border/50 hover:bg-blue-500 hover:text-white text-xs px-3 py-1.5 rounded-full whitespace-nowrap transition-all shadow-sm flex items-center gap-1.5">
+                                <span>{snippet}</span><MessageSquarePlus className="w-3 h-3 opacity-50" />
+                            </button>
+                        ))}
+                    </motion.div>
+                )}
+            </AnimatePresence>
 
-          {/* Recording Indicator */}
-          {isRecording && (
-             <p className="text-xs text-center text-red-500 mb-2 font-medium animate-pulse">
-               Recording... Click Stop to send
-             </p>
-          )}
-
-          <div className="flex items-center gap-3 max-w-lg mx-auto">
-            {/* HIDDEN INPUT FOR IMAGES */}
-            <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageSelect} />
-            <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={handleVideoSelect} />
-
-            <Button 
-              variant="ghost" 
-              size="icon" 
-              disabled={isUploading || isRecording}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <ImageIcon className="w-5 h-5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              disabled={isUploading || isRecording}
-              onClick={() => videoInputRef.current?.click()}
-            >
-              <Video className="w-5 h-5" />
-            </Button>
-
-            <div className="flex-1 relative">
-              <Input
-                placeholder={isUploading ? "Uploading..." : isRecording ? "Recording..." : "Type a message..."}
-                value={newMessage}
-                onChange={(e) => setNewMessage(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && handleSendText()}
-                disabled={isUploading || isRecording}
-                className="pr-12 bg-secondary border-border focus-visible:ring-1"
-              />
+            <div className="flex justify-center mb-3">
+                <div className="flex items-center gap-3 bg-card/80 backdrop-blur border border-border px-4 py-2 rounded-full shadow-lg">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><div onClick={() => setIsResponderMode(false)} className={`flex items-center gap-2 cursor-pointer ${!isResponderMode ? "text-primary font-bold" : "text-muted-foreground"}`}><User className="w-3.5 h-3.5" /><span className="text-xs">Citizen ({SUPPORTED_LANGUAGES[userLanguage].name})</span><ChevronDown className="w-3 h-3 opacity-50" /></div></DropdownMenuTrigger>
+                      <DropdownMenuContent align="start">{Object.entries(SUPPORTED_LANGUAGES).map(([key, lang]) => (<DropdownMenuItem key={key} onClick={() => setUserLanguage(key as any)}><span className="mr-2 uppercase text-xs font-bold opacity-50">{key}</span> {lang.name}</DropdownMenuItem>))}</DropdownMenuContent>
+                    </DropdownMenu>
+                    <div onClick={() => setIsResponderMode(!isResponderMode)} className={`w-9 h-5 rounded-full p-1 cursor-pointer flex items-center ${isResponderMode ? "bg-blue-500" : "bg-primary"}`}><motion.div className="w-3 h-3 bg-white rounded-full shadow-sm" animate={{ x: isResponderMode ? 16 : 0 }} /></div>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild><div onClick={() => setIsResponderMode(true)} className={`flex items-center gap-2 cursor-pointer ${isResponderMode ? "text-blue-500 font-bold" : "text-muted-foreground"}`}><ShieldAlert className="w-3.5 h-3.5" /><span className="text-xs">Responder ({SUPPORTED_LANGUAGES[responderLanguage].name})</span><ChevronDown className="w-3 h-3 opacity-50" /></div></DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">{Object.entries(SUPPORTED_LANGUAGES).map(([key, lang]) => (<DropdownMenuItem key={key} onClick={() => setResponderLanguage(key as any)}><span className="mr-2 uppercase text-xs font-bold opacity-50">{key}</span> {lang.name}</DropdownMenuItem>))}</DropdownMenuContent>
+                    </DropdownMenu>
+                </div>
             </div>
 
-            {/* DYNAMIC SEND BUTTON */}
-            {newMessage.trim() ? (
-              <Button variant="default" size="icon" onClick={handleSendText} disabled={isUploading}>
-                <Send className="w-5 h-5" />
-              </Button>
-            ) : (
-              <Button
-                variant={isRecording ? "destructive" : "secondary"} // Red if recording
-                size="icon"
-                onClick={isRecording ? stopRecording : startRecording} // Toggle function
-                disabled={isUploading}
-              >
-                {isUploading ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : isRecording ? (
-                  <StopCircle className="w-5 h-5 animate-pulse" /> // Show Stop icon when recording
-                ) : (
-                  <Mic className="w-5 h-5" />
-                )}
-              </Button>
+            {(isDictating || isUploading) && (
+                <p className="text-xs text-center text-muted-foreground mb-2 flex items-center justify-center gap-2 animate-pulse">
+                    {isUploading ? <><Loader2 className="w-3 h-3 animate-spin"/> Translating & Sending...</> : <><Mic className="w-3 h-3"/> Listening ({SUPPORTED_LANGUAGES[currentDictationLang].name})...</>}
+                </p>
             )}
-          </div>
+
+            <div className={`flex items-center gap-3 max-w-lg mx-auto backdrop-blur-xl border p-2 rounded-2xl shadow-xl transition-all ${isResponderMode ? "bg-blue-500/5 border-blue-500/20" : "bg-card/90 border-border"}`}>
+                <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
+                <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
+                
+                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => fileInputRef.current?.click()} disabled={isUploading}><ImageIcon className="w-5 h-5 text-muted-foreground" /></Button>
+                <Button variant="ghost" size="icon" className="shrink-0" onClick={() => videoInputRef.current?.click()} disabled={isUploading}><Video className="w-5 h-5 text-muted-foreground" /></Button>
+
+                <div className="flex-1 relative">
+                    <Input placeholder={isDictating ? "Listening..." : isResponderMode ? SUPPORTED_LANGUAGES[responderLanguage].placeholder : SUPPORTED_LANGUAGES[userLanguage].placeholder} value={newMessage} onChange={(e) => setNewMessage(e.target.value)} onKeyDown={(e) => e.key === "Enter" && !isUploading && handleSendText()} disabled={isUploading || isRecordingAudio} className="border-0 bg-transparent focus-visible:ring-0 px-2 h-10 placeholder:text-muted-foreground/50" />
+                    {hasDictationSupport && !isRecordingAudio && <button onClick={toggleDictation} className={`absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-full transition-colors ${isDictating ? "bg-blue-500 text-white animate-pulse" : "text-muted-foreground hover:bg-black/5"}`}>{isDictating ? <Mic className="w-4 h-4" /> : <MicOff className="w-4 h-4" />}</button>}
+                </div>
+
+                {newMessage.trim() ? (
+                    <Button variant="default" size="icon" onClick={() => handleSendText()} disabled={isUploading} className={`shrink-0 rounded-xl ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}</Button>
+                ) : (
+                    <Button variant={isRecordingAudio ? "destructive" : "secondary"} size="icon" disabled={isUploading || isDictating} onClick={isRecordingAudio ? stopRecordingAudio : startRecordingAudio} className="shrink-0 rounded-xl">{isRecordingAudio ? <StopCircle className="w-5 h-5 animate-pulse" /> : <Mic className="w-5 h-5" />}</Button>
+                )}
+            </div>
         </div>
       ) : (
-        <div className="bg-card/90 backdrop-blur-xl border-t border-border p-4 pb-8 md:pb-4">
-          <p className="text-center text-sm text-muted-foreground flex items-center justify-center">
-            <Lock className="w-4 h-4 mr-2" />
-            This conversation has been closed by the responder
-          </p>
+        <div className="fixed bottom-0 left-0 right-0 p-6 bg-card/90 backdrop-blur-xl border-t border-border">
+            <p className="text-center text-sm text-muted-foreground flex items-center justify-center"><Lock className="w-4 h-4 mr-2" /> This report has been closed.</p>
         </div>
       )}
     </div>
