@@ -1,10 +1,10 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, useParams } from "react-router-dom";
 import { 
-  ArrowLeft, Send, Mic, Image as ImageIcon, StopCircle, Lock, 
-  Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, ChevronDown, 
-  Bot, MessageSquarePlus, Video, BrainCircuit 
+  ArrowLeft, Send, Mic, Image as ImageIcon, Lock, 
+  Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, 
+  Bot, Video, BrainCircuit 
 } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,11 +20,20 @@ import {
 } from "firebase/firestore";
 
 // --- Configuration ---
+// Make sure GEMINI_MODEL is set to "gemini-2.5-flash-lite" in your api.ts file
 import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL, GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL } from "@/config/api";
 
-// Cache for LLM responses
-const responseCache = new Map<string, { responses: string[], timestamp: number }>();
-const CACHE_DURATION = 10 * 60 * 1000; 
+// --- Types ---
+interface Message {
+  id: string;
+  text: string;
+  translation?: string;
+  language?: string;
+  sender: "user" | "responder";
+  timestamp: any; // Firestore Timestamp
+  type: "text" | "image" | "voice" | "video";
+  altText?: string; 
+}
 
 const SUPPORTED_LANGUAGES = {
   en: { name: "English", placeholder: "Type a message...", code: "en" },
@@ -43,27 +52,12 @@ const getBrowserLang = (): keyof typeof SUPPORTED_LANGUAGES => {
     return (Object.keys(SUPPORTED_LANGUAGES).includes(lang) ? lang : 'en') as keyof typeof SUPPORTED_LANGUAGES;
 };
 
-// Message Interface
-interface Message {
-  id: string;
-  text: string;
-  translation?: string;
-  language?: string;
-  sender: "user" | "responder";
-  timestamp: any; // Firestore Timestamp
-  type: "text" | "image" | "voice" | "video";
-  altText?: string; 
-}
+// --- API Helpers ---
 
-// --- Helper: Smart Fallback ---
-const getSmartReplies = (text: string): string[] => {
-    const t = text.toLowerCase();
-    if (t.includes("fire") || t.includes("smoke")) return ["Evacuate immediately!", "Close all doors", "Firefighters en route"];
-    if (t.includes("hurt") || t.includes("blood")) return ["Apply pressure", "Don't move", "Ambulance dispatched"];
-    return ["What is your emergency?", "Are you safe?", "Describe the scene"];
-};
+// 1. Cache for Smart Replies
+const responseCache = new Map<string, { responses: string[], timestamp: number }>();
+const CACHE_DURATION = 10 * 60 * 1000; 
 
-// --- API: Groq Smart Replies ---
 const fetchSmartReplies = async (lastUserMessage: string): Promise<string[]> => {
   const cacheKey = lastUserMessage.toLowerCase().trim();
   const cached = responseCache.get(cacheKey);
@@ -89,13 +83,13 @@ const fetchSmartReplies = async (lastUserMessage: string): Promise<string[]> => 
         responseCache.set(cacheKey, { responses, timestamp: Date.now() });
         return responses;
     }
-    throw new Error("Invalid AI format");
+    return ["What is your emergency?", "Are you safe?", "Describe the scene"];
   } catch (error) {
-    return getSmartReplies(lastUserMessage);
+    return ["What is your emergency?", "Are you safe?", "Describe the scene"];
   }
 };
 
-// --- API: Translation ---
+// 2. Translation
 const translateText = async (text: string, sourceLang: string, targetLang: string) => {
     if (sourceLang === targetLang) return null;
     try {
@@ -105,16 +99,16 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
     } catch { return null; }
 };
 
-// --- API: Gemini Alt Text ---
+// 3. Gemini Alt Text
 const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> => {
   if (!GEMINI_API_KEY) return null;
   try {
-    // 1. Fetch image (CORS must be enabled on bucket)
+    // A. Fetch the image blob (Requires CORS configuration on Firebase Storage bucket)
     const imgRes = await fetch(mediaUrl);
     if (!imgRes.ok) return null;
     const blob = await imgRes.blob();
     
-    // 2. Convert to Base64
+    // B. Convert to Base64
     const base64 = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -122,28 +116,34 @@ const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> 
     });
     const cleanBase64 = base64.split(',')[1];
 
-    // 3. Send to Gemini
+    // C. Send to Gemini
     const res = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{
           parts: [
-            { text: "Describe this emergency scene for a 911 dispatcher. Max 15 words. Mention hazards." },
+            { text: "Describe this emergency scene for a 911 dispatcher. Max 15 words. Focus on hazards, injuries, or fire." },
             { inlineData: { mimeType: blob.type, data: cleanBase64 } }
           ]
         }]
       })
     });
+    
+    if (!res.ok) {
+        console.error("Gemini API Error:", await res.text());
+        return null;
+    }
+
     const data = await res.json();
     return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch (err) {
-    console.error("Gemini Error:", err);
+    console.error("Gemini execution failed:", err);
     return null;
   }
 };
 
-// --- Component ---
+// --- Main Component ---
 const ReportChat = () => {
   const { eventId } = useParams();
   const navigate = useNavigate();
@@ -154,16 +154,16 @@ const ReportChat = () => {
   const [isClosed, setIsClosed] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Audio / TTS State
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
+  // Audio & TTS
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false); // Placeholder for actual recording logic if needed
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   
-  // Language State
+  // Language & Role
   const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
   const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
   const [isResponderMode, setIsResponderMode] = useState(false);
   
-  // AI State
+  // AI Suggestions
   const [suggestedSnippets, setSuggestedSnippets] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
@@ -171,13 +171,10 @@ const ReportChat = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
-  
-  // Track images being processed to prevent loops
   const processingAltRef = useRef<Set<string>>(new Set());
 
-  // --- TTS Function ---
+  // --- TTS Handler ---
   const handleSpeak = (text: string, id: string, language: string) => {
     if (speakingMessageId === id) { 
         window.speechSynthesis.cancel(); 
@@ -187,52 +184,54 @@ const ReportChat = () => {
     window.speechSynthesis.cancel();
     setSpeakingMessageId(id);
     const utterance = new SpeechSynthesisUtterance(text);
-    // Use 'en-US' for alt text usually, or detect language
-    utterance.lang = language === 'he' ? 'he-IL' : 'en-US'; 
+    // Adjust language code format for SpeechSynthesis (e.g., 'he' -> 'he-IL')
+    utterance.lang = language === 'he' ? 'he-IL' : language === 'es' ? 'es-ES' : 'en-US'; 
     utterance.onend = () => setSpeakingMessageId(null);
     window.speechSynthesis.speak(utterance);
   };
 
-  // --- STT (Dictation) ---
-  const handleDictationResult = (text: string) => setNewMessage(prev => prev.endsWith(text) ? prev : text);
-  const currentDictationLang = isResponderMode ? responderLanguage : userLanguage;
-  
-  // Simple Hook implementation for brevity
+  // --- STT Handler (Simplified) ---
   const [isDictating, setIsDictating] = useState(false);
   const recognitionRef = useRef<any>(null);
+  
   const toggleDictation = () => {
-      if (isDictating) { recognitionRef.current?.stop(); setIsDictating(false); return; }
       const SpeechConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechConstructor) return;
-      const recognition = new SpeechConstructor();
-      recognition.continuous = true;
-      recognition.lang = currentDictationLang === 'en' ? 'en-US' : currentDictationLang;
-      recognition.onresult = (e: any) => {
-          const t = e.results[e.results.length - 1][0].transcript;
-          setNewMessage(t);
-      };
-      recognitionRef.current = recognition;
-      recognition.start();
-      setIsDictating(true);
+      if (!SpeechConstructor) { alert("Browser not supported"); return; }
+      
+      if (isDictating) { 
+          recognitionRef.current?.stop(); 
+          setIsDictating(false); 
+      } else {
+          const recognition = new SpeechConstructor();
+          recognition.continuous = true;
+          recognition.lang = isResponderMode ? responderLanguage : userLanguage;
+          recognition.onresult = (e: any) => {
+             const t = e.results[e.results.length - 1][0].transcript;
+             setNewMessage(t);
+          };
+          recognitionRef.current = recognition;
+          recognition.start();
+          setIsDictating(true);
+      }
   };
 
-  // --- Main Effect: Firestore Listener ---
+  // --- Main Logic: Firestore & AI Listeners ---
   useEffect(() => {
     if (!eventId) return;
 
-    // 1. Listen to Event Status
     const unsubReport = onSnapshot(doc(db, "events", eventId), (doc) => {
       if (doc.exists()) setIsClosed(doc.data().status === "closed");
     });
 
-    // 2. Listen to Messages
     const q = query(collection(db, "events", eventId, "messages"), orderBy("createdAt", "asc"));
     const unsubMessages = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(msgs);
-      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      
+      // Auto-scroll
+      setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
-      // --- Smart Replies Logic ---
+      // 1. Smart Replies Logic
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
         lastProcessedMessageId.current = lastUserMsg.id;
@@ -242,46 +241,47 @@ const ReportChat = () => {
         setIsGeneratingReplies(false);
       }
 
-      // --- Alt-Text Logic (Only New Images) ---
+      // 2. Alt-Text Logic (Quota Protection Included)
       const mediaToDescribe = msgs.find((m) => {
-         if (m.type !== "image" || m.altText) return false; // Skip if not image or already has text
-         if (processingAltRef.current.has(m.id)) return false; // Skip if currently processing
+         // Must be an image without existing alt text
+         if (m.type !== "image" || m.altText) return false;
          
-         // CHECK: Is this a "new" image?
-         // We check if the message was created in the last 5 minutes.
-         // This prevents burning tokens on old history when reloading the page.
+         // Must not be currently processing
+         if (processingAltRef.current.has(m.id)) return false;
+         
+         // QUOTA PROTECTION: Only process "New" images (uploaded in last 5 minutes)
          const now = Date.now();
          const msgTime = m.timestamp?.toDate ? m.timestamp.toDate().getTime() : now;
-         const isRecent = (now - msgTime) < 5 * 60 * 1000; // 5 minutes window
+         const isRecent = (now - msgTime) < 5 * 60 * 1000; 
          
          return isRecent;
       });
 
       if (mediaToDescribe) {
-        console.log("Found new image to analyze:", mediaToDescribe.id);
+        console.log("🤖 Gemini: Analyzing new image...", mediaToDescribe.id);
         processingAltRef.current.add(mediaToDescribe.id);
         
-        // Wait small delay to ensure upload finished on server
+        // Small delay to ensure file is ready on storage
         setTimeout(async () => {
              const alt = await fetchAltTextFromGemini(mediaToDescribe.text);
              if (alt) {
                  await updateDoc(doc(db, "events", eventId, "messages", mediaToDescribe.id), { altText: alt });
+                 console.log("✅ Gemini: Alt text saved.");
              }
-             processingAltRef.current.delete(mediaToDescribe.id); // Done
-        }, 1000);
+             processingAltRef.current.delete(mediaToDescribe.id);
+        }, 1500);
       }
     });
 
     return () => { unsubReport(); unsubMessages(); };
   }, [eventId]);
 
-  // --- Send Message ---
+  // --- Actions ---
   const handleSendText = async (textOverride?: string) => {
     const textToSend = textOverride || newMessage;
     if (!textToSend.trim() || isClosed) return;
     setNewMessage("");
     
-    // Translation Logic
     const finalLang = isResponderMode ? responderLanguage : userLanguage;
     const targetLang = isResponderMode ? userLanguage : responderLanguage;
     const trans = await translateText(textToSend, finalLang, targetLang);
@@ -296,7 +296,6 @@ const ReportChat = () => {
     });
   };
 
-  // --- File Upload ---
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
     const file = e.target.files?.[0];
     if (!file || !eventId) return;
@@ -318,7 +317,7 @@ const ReportChat = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative font-sans">
-      {/* Header */}
+      {/* Top Bar */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border shadow-sm">
         <div className="flex items-center gap-3 px-4 py-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft className="w-5 h-5" /></Button>
@@ -335,16 +334,16 @@ const ReportChat = () => {
         </div>
       </div>
 
-      {/* Messages Area */}
+      {/* Messages List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-48">
         {messages.map((message) => {
           const isUser = message.sender === "user";
           return (
           <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
-            <div className={`max-w-[85%] relative group`}>
+            <div className={`max-w-[85%] relative`}>
               <div className={`rounded-2xl px-4 py-3 shadow-sm ${isUser ? "bg-primary text-primary-foreground rounded-br-none" : "bg-secondary text-secondary-foreground rounded-bl-none"}`}>
                 
-                {/* Text Message */}
+                {/* Text Type */}
                 {message.type === "text" && (
                   <div className="flex flex-col gap-1">
                       <div className="flex items-start gap-3">
@@ -362,43 +361,59 @@ const ReportChat = () => {
                   </div>
                 )}
 
-                {/* Image Message with Alt Text & TTS */}
+                {/* Image Type + Alt Text + TTS */}
                 {message.type === "image" && (
                   <div className="space-y-2">
-                    <img src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
+                    <img 
+                      src={message.text} 
+                      className="rounded-lg max-h-60 w-auto object-cover border border-white/20 bg-black/50" 
+                      loading="lazy"
+                    />
                     
-                    {/* Alt Text Section */}
+                    {/* Alt Text Container */}
                     {message.altText ? (
-                        <div className="flex items-start gap-2 bg-black/20 rounded-md p-2 mt-1 backdrop-blur-sm">
-                            <BrainCircuit className="w-3.5 h-3.5 mt-0.5 shrink-0 opacity-70" />
-                            <p className="text-[11px] leading-snug flex-1 italic opacity-90">{message.altText}</p>
+                        <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
+                            <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
                             
-                            {/* TTS Button for Alt Text */}
+                            <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white">
+                                {message.altText}
+                            </p>
+                            
+                            {/* TTS Button */}
                             <button 
-                                onClick={(e) => { e.stopPropagation(); handleSpeak(message.altText!, message.id + "_alt", 'en'); }} 
-                                className="p-1 rounded-full hover:bg-white/20 transition-colors shrink-0"
+                                onClick={(e) => { 
+                                  e.preventDefault();
+                                  e.stopPropagation(); 
+                                  handleSpeak(message.altText!, message.id + "_alt", 'en'); 
+                                }} 
+                                className="h-7 w-7 flex items-center justify-center rounded-full bg-white/10 hover:bg-white/20 transition-all shrink-0 border border-white/5 active:scale-95 text-white"
+                                title="Read description"
                             >
-                                {speakingMessageId === message.id + "_alt" ? <Square className="w-3 h-3 fill-current"/> : <Volume2 className="w-3 h-3"/>}
+                                {speakingMessageId === message.id + "_alt" ? (
+                                  <Square className="w-3 h-3 fill-current animate-pulse"/> 
+                                ) : (
+                                  <Volume2 className="w-3.5 h-3.5"/>
+                                )}
                             </button>
                         </div>
                     ) : (
-                        // Loading State for Alt Text
-                        <div className="flex items-center gap-2 px-2 py-1">
+                        // Loading Indicator
+                        <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
                              <Loader2 className="w-3 h-3 animate-spin opacity-50" />
-                             <span className="text-[10px] opacity-50">Analyzing scene...</span>
+                             <span className="text-[10px] opacity-50">AI analyzing...</span>
                         </div>
                     )}
                   </div>
                 )}
 
-                {/* Video Message */}
+                {/* Video Type */}
                 {message.type === "video" && (
                     <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
                 )}
 
-                {/* Timestamp */}
+                {/* Time */}
                 <p className={`text-[9px] mt-1.5 text-right opacity-60`}>
-                    {message.timestamp?.toDate ? message.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Sending..."}
+                    {message.timestamp?.toDate ? message.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "..."}
                 </p>
               </div>
             </div>
@@ -407,11 +422,11 @@ const ReportChat = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
+      {/* Bottom Controls */}
       {!isClosed ? (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent pt-8">
             
-            {/* Smart Suggestions */}
+            {/* Suggestions */}
             <AnimatePresence>
                 {isResponderMode && suggestedSnippets.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex gap-2 overflow-x-auto pb-3 px-1 no-scrollbar">
@@ -428,7 +443,7 @@ const ReportChat = () => {
                 )}
             </AnimatePresence>
 
-            {/* Role Switcher */}
+            {/* Role/Lang Switcher */}
             <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-3 bg-card/90 backdrop-blur border border-border px-3 py-1.5 rounded-full shadow-sm">
                     <DropdownMenu>
@@ -447,7 +462,7 @@ const ReportChat = () => {
                 </div>
             </div>
 
-            {/* Input Bar */}
+            {/* Input Field */}
             <div className={`flex items-center gap-2 p-1.5 rounded-3xl border shadow-lg transition-all ${isResponderMode ? "bg-blue-50/50 border-blue-200" : "bg-background border-border"}`}>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
@@ -469,7 +484,7 @@ const ReportChat = () => {
                 {newMessage.trim() ? (
                     <Button onClick={() => handleSendText()} disabled={isUploading} size="icon" className={`h-9 w-9 rounded-full shrink-0 ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</Button>
                 ) : (
-                    <Button variant={isRecordingAudio ? "destructive" : "secondary"} size="icon" className="h-9 w-9 rounded-full shrink-0" onClick={() => {}}><Mic className="w-4 h-4" /></Button>
+                    <Button variant="secondary" size="icon" className="h-9 w-9 rounded-full shrink-0" onClick={() => toggleDictation()}><Mic className="w-4 h-4" /></Button>
                 )}
             </div>
         </div>
