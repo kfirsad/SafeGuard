@@ -20,8 +20,11 @@ import {
 } from "firebase/firestore";
 
 // --- Configuration ---
-const HF_TOKEN = "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"; 
-const HF_LLM_URL = "https://api-inference.huggingface.co/models/HuggingFaceH4/zephyr-7b-beta";
+import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL } from "@/config/api";
+
+// Cache for LLM responses to reduce API calls
+const responseCache = new Map<string, { responses: string[], timestamp: number }>();
+const CACHE_DURATION = 10 * 60 * 1000; // 10 minutes cache
 
 const SUPPORTED_LANGUAGES = {
   en: { name: "English", placeholder: "Type a message...", code: "en" },
@@ -50,27 +53,114 @@ interface Message {
   type: "text" | "image" | "voice" | "video";
 }
 
-// --- AI Logic ---
+// --- Smart Fallback System ---
+const getSmartReplies = (text: string): string[] => {
+    const t = text.toLowerCase();
+    
+    if (t.includes("fire") || t.includes("smoke") || t.includes("burn") || t.includes("flame")) {
+        return ["Evacuate immediately!", "Close all doors behind you", "Fire department on the way"];
+    }
+    
+    if (t.includes("hurt") || t.includes("blood") || t.includes("wound") || t.includes("cut") || t.includes("bleeding")) {
+        return ["Apply firm pressure to wound", "Don't move the injured area", "Ambulance dispatched to you"];
+    }
+    
+    if (t.includes("breath") || t.includes("chest") || t.includes("heart") || t.includes("pain")) {
+        return ["Stay calm, breathe slowly", "Sit down, don't move", "Paramedics on their way"];
+    }
+    
+    if (t.includes("attack") || t.includes("danger") || t.includes("threat") || t.includes("weapon") || t.includes("gun")) {
+        return ["Find safe location now", "Police have been notified", "Stay hidden if possible"];
+    }
+    
+    if (t.includes("crash") || t.includes("accident") || t.includes("car") || t.includes("collision")) {
+        return ["Stay in vehicle if safe", "Turn on hazard lights", "Emergency services coming"];
+    }
+    
+    if (t.includes("where") || t.includes("location") || t.includes("address")) {
+        return ["Share your exact location", "What's your address?", "Any nearby landmarks?"];
+    }
+    
+    if (t.includes("help") || t.includes("please") || t.includes("need")) {
+        return ["Help is on the way", "Stay calm, we're here", "Units dispatched"];
+    }
+    
+    return ["What is your emergency?", "Are you in a safe location?", "Can you describe the situation?"];
+};
+
+// --- AI LOGIC using Groq Llama 3.3 70B (Best free model!) ---
 const fetchSmartReplies = async (lastUserMessage: string): Promise<string[]> => {
-  if (!HF_TOKEN) return ["What is your location?", "Stay calm.", "Help is on the way."];
+  // Check cache first
+  const cacheKey = lastUserMessage.toLowerCase().trim();
+  const cached = responseCache.get(cacheKey);
+  if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+    console.log("✅ Using cached AI response");
+    return cached.responses;
+  }
 
   try {
-    const prompt = `<|system|>You are a 911 dispatch assistant. The citizen said: "${lastUserMessage}". Provide 3 short (under 10 words) urgent responses for the responder. Separate with "|". Do not output anything else.</s><|assistant|>`;
-    
-    const response = await fetch(HF_LLM_URL, {
+    const response = await fetch(GROQ_API_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ inputs: prompt, parameters: { max_new_tokens: 60, return_full_text: false, temperature: 0.5 } }),
+      headers: { 
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${GROQ_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: GROQ_MODEL,
+        messages: [
+          {
+            role: "system",
+            content: "You are an expert 911 emergency dispatcher AI assistant. Your role is to provide quick, professional, and helpful responses to emergency situations.\n\nRULES:\n1. Provide EXACTLY 3 urgent response options\n2. Each option must be 5-8 words maximum\n3. Separate options with the | character\n4. Be direct, clear, and actionable\n5. Prioritize safety and reassurance\n6. Use simple, urgent language\n\nEXAMPLE OUTPUT: \"Stay calm and breathe|What is your exact location?|Help is on the way\""
+          },
+          {
+            role: "user",
+            content: `Emergency situation: "${lastUserMessage}"\n\nProvide 3 urgent dispatcher responses (max 8 words each, separated by |):`
+          }
+        ],
+        temperature: 0.8,
+        max_tokens: 120,
+        top_p: 0.9,
+        stream: false
+      }),
     });
 
-    if (!response.ok) throw new Error("AI Error");
-    const result = await response.json();
-    if (Array.isArray(result) && result[0]?.generated_text) {
-      return result[0].generated_text.replace(/["\n]/g, "").split("|").map((s: string) => s.trim()).filter((s: string) => s.length > 2).slice(0, 3);
+    if (!response.ok) {
+        const errorText = await response.text();
+        console.warn("⚠️ Groq API Error:", response.status, errorText);
+        throw new Error(`API Error: ${response.status}`);
     }
-    return [];
+    
+    const result = await response.json();
+    const content = result.choices?.[0]?.message?.content || "";
+    
+    console.log("🤖 AI Response:", content);
+    
+    if (content) {
+      const responses = content
+        .split("|")
+        .map((s: string) => s.trim())
+        .map((s: string) => s.replace(/^[\d\-\.\)\*]\s*/, "")) // Remove numbering/bullets
+        .map((s: string) => s.replace(/^["']|["']$/g, "")) // Remove quotes
+        .filter((s: string) => s.length > 5 && s.length < 100)
+        .filter((s: string) => !s.toLowerCase().includes("example")) // Remove meta text
+        .slice(0, 3);
+      
+      if (responses.length === 3) {
+        console.log("✅ Got 3 valid AI responses");
+        responseCache.set(cacheKey, { responses, timestamp: Date.now() });
+        return responses;
+      }
+      
+      console.warn("⚠️ AI returned invalid format, using fallback");
+    }
+    
+    throw new Error("No valid response from AI");
+
   } catch (error) {
-    return ["What is your exact location?", "Stay calm, help is coming.", "Describe the situation."];
+    console.warn("❌ AI failed, using smart fallback:", error);
+    const fallbackResponses = getSmartReplies(lastUserMessage);
+    responseCache.set(cacheKey, { responses: fallbackResponses, timestamp: Date.now() });
+    return fallbackResponses;
   }
 };
 
@@ -126,12 +216,10 @@ const ReportChat = () => {
   const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   
-  // Dev Mode / Simulation
   const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
   const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
   const [isResponderMode, setIsResponderMode] = useState(false);
   
-  // AI
   const [suggestedSnippets, setSuggestedSnippets] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
@@ -139,6 +227,7 @@ const ReportChat = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const lastProcessedMessageId = useRef<string | null>(null);
 
   // STT
   const handleDictationResult = (text: string) => setNewMessage(prev => prev.endsWith(text) ? prev : text);
@@ -169,10 +258,20 @@ const ReportChat = () => {
         setMessages(msgs);
         messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-        // AI Logic Trigger
         const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
-        if (lastUserMsg) {
+        
+        // Only generate AI replies if:
+        // 1. There's a user message
+        // 2. We haven't processed this specific message ID yet
+        // 3. We're not currently generating
+        if (lastUserMsg && 
+            lastUserMsg.id !== lastProcessedMessageId.current && 
+            !isGeneratingReplies) {
+            
+            console.log("🆕 New user message detected:", lastUserMsg.id);
+            lastProcessedMessageId.current = lastUserMsg.id;
             setIsGeneratingReplies(true);
+            
             const textToAnalyze = lastUserMsg.translation || lastUserMsg.text;
             const snippets = await fetchSmartReplies(textToAnalyze);
             setSuggestedSnippets(snippets);
@@ -180,9 +279,8 @@ const ReportChat = () => {
         }
     });
     return () => { unsubReport(); unsubMessages(); };
-  }, [eventId]);
+  }, [eventId, isGeneratingReplies]);
 
-  // Sending Logic
   const sendMessage = async (content: string, type: "text" | "image" | "voice" | "video") => {
     if (!eventId) return;
     let finalTranslation = null;
@@ -217,7 +315,6 @@ const ReportChat = () => {
     await sendMessage(textToSend, "text");
   };
 
-  // Media Handlers
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>, type: "image" | "video") => {
     const file = e.target.files?.[0];
     if (!file || !eventId) return;
@@ -262,7 +359,6 @@ const ReportChat = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative">
-      {/* Header */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-3 px-4 py-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft className="w-5 h-5" /></Button>
@@ -276,7 +372,6 @@ const ReportChat = () => {
         </div>
       </div>
 
-      {/* Messages */}
       <div className="flex-1 overflow-y-auto p-4 space-y-4 pb-52">
         {messages.map((message) => (
           <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${message.sender === "user" ? "justify-end" : "justify-start"}`}>
@@ -306,11 +401,8 @@ const ReportChat = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Input Area */}
       {!isClosed ? (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent pb-6 pt-4">
-            
-            {/* Smart Replies */}
             <AnimatePresence>
                 {isResponderMode && suggestedSnippets.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex gap-2 overflow-x-auto pb-3 pt-1 px-1 no-scrollbar">
@@ -327,7 +419,6 @@ const ReportChat = () => {
                 )}
             </AnimatePresence>
 
-            {/* Dev Toolbar */}
             <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-3 bg-card/80 backdrop-blur border border-border px-4 py-2 rounded-full shadow-lg">
                     <DropdownMenu>
@@ -342,14 +433,12 @@ const ReportChat = () => {
                 </div>
             </div>
 
-            {/* Status */}
             {(isDictating || isUploading) && (
                 <p className="text-xs text-center text-muted-foreground mb-2 flex items-center justify-center gap-2 animate-pulse">
                     {isUploading ? <><Loader2 className="w-3 h-3 animate-spin"/> Translating & Sending...</> : <><Mic className="w-3 h-3"/> Listening ({SUPPORTED_LANGUAGES[currentDictationLang].name})...</>}
                 </p>
             )}
 
-            {/* Input Bar */}
             <div className={`flex items-center gap-3 max-w-lg mx-auto backdrop-blur-xl border p-2 rounded-2xl shadow-xl transition-all ${isResponderMode ? "bg-blue-500/5 border-blue-500/20" : "bg-card/90 border-border"}`}>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
