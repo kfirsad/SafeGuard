@@ -177,54 +177,72 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
 
 // Gemini helper
 const fetchAltTextFromGemini = async (mediaUrl: string, mediaType: "image" | "video"): Promise<string | null> => {
-  if (!GEMINI_API_KEY || mediaType === "video") return null; // Skip videos for now
+  if (!GEMINI_API_KEY) {
+    console.error("❌ Missing Gemini API Key");
+    return null;
+  }
+  if (mediaType === "video") return null; // Skip videos for now
+
   try {
-    // Fetch the image
+    console.log("🤖 Gemini: Fetching image for analysis...");
+    
+    // 1. Fetch the image from Firebase URL
+    // NOTE: This usually fails without CORS configuration (See Step 3 below)
     const imgRes = await fetch(mediaUrl);
-    if (!imgRes.ok) return null;
+    
+    if (!imgRes.ok) {
+      console.error(`❌ Failed to fetch image from URL. Status: ${imgRes.status}`);
+      return null;
+    }
+
     const blob = await imgRes.blob();
-    const base64 = await new Promise<string>((resolve) => {
+    
+    // 2. Convert to Base64
+    const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
-    const mimeType = blob.type;
 
+    const mimeType = blob.type;
+    const cleanBase64 = base64.split(',')[1]; // Remove "data:image/jpeg;base64,"
+
+    console.log("🤖 Gemini: Sending to API...");
+
+    // 3. Send to Gemini
     const res = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        contents: [
-          {
-            parts: [
-              {
-                text: "You are generating a concise alt-text for emergency response. Provide one clear, factual sentence (max 25 words) describing what is visibly happening. Avoid speculation."
-              },
-              {
-                inlineData: {
-                  mimeType,
-                  data: base64.split(',')[1] // Remove data:mime;base64,
-                }
+        contents: [{
+          parts: [
+            { text: "Describe this emergency situation image in one clear, factual sentence for a 911 dispatcher. Max 20 words. Focus on visible hazards, injuries, or weapons." },
+            {
+              inlineData: {
+                mimeType: mimeType,
+                data: cleanBase64
               }
-            ]
-          }
-        ],
-        safetySettings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_LOW_AND_ABOVE" }]
+            }
+          ]
+        }]
       })
     });
+
     if (!res.ok) {
-      console.warn("Gemini API error:", res.status, await res.text());
+      const errorText = await res.text();
+      console.error("❌ Gemini API Error:", res.status, errorText);
       return null;
     }
+
     const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts
-      ?.map((p: any) => p.text || "")
-      .join(" ")
-      .trim();
-    if (text) return text.slice(0, 280);
-    return null;
+    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+    
+    console.log("✅ Gemini Alt Text:", text);
+    return text || null;
+
   } catch (err) {
-    console.warn("Gemini alt-text failed", err);
+    console.error("❌ Gemini alt-text CRITICAL failure:", err);
     return null;
   }
 };
