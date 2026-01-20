@@ -1,73 +1,33 @@
-# Welcome to your Lovable project
+# 🛡️ SafeGuard - Emergency Response System
 
-## Project info
+**SafeGuard** is a progressive web application (PWA) designed to bridge the gap between citizens in distress and emergency responders. It utilizes AI for real-time incident classification, automated translation, and smart response suggestions, ensuring rapid and accurate communication during critical moments.
 
-**URL**: https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID
+![Project Status](https://img.shields.io/badge/Status-Development-orange)
+![Tech Stack](https://img.shields.io/badge/Stack-React%20|%20Vite%20|%20Firebase%20|%20AI-blue)
 
-## How can I edit this code?
+## 🌟 Key Features
 
-There are several ways of editing your application.
+* **🚨 AI Incident Classification:** Automatically categorizes reports (Medical, Police, Fire) using Zero-Shot Classification based on user description.
+* **💬 Real-Time Chat:** Live communication between citizens and responders powered by Firebase Firestore.
+* **🤖 AI Smart Replies:** Generates context-aware, urgent response suggestions for responders using LLMs (Flan-T5), with a local fallback mechanism for reliability.
+* **🌍 Live Translation:** Automatic translation between the citizen's language and the responder's language.
+* **🎙️ Accessibility First:** Full support for **Speech-to-Text** (Dictation) and **Text-to-Speech** (Read aloud) for accessibility in high-stress situations.
+* **📸 Multimedia Support:** Users can upload images, record audio, and send videos to provide context.
+* **📱 Progressive Web App (PWA):** Installable on iOS and Android devices for a native app-like experience (offline capabilities included).
 
-**Use Lovable**
+## 🛠️ Tech Stack
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and start prompting.
+* **Frontend:** React, TypeScript, Vite
+* **Styling:** Tailwind CSS, Shadcn/UI, Framer Motion (Animations)
+* **Backend / Database:** Firebase (Firestore, Storage, Auth)
+* **AI / ML:** Hugging Face Inference API (via local Proxy), Web Speech API
+* **Icons:** Lucide React
 
-Changes made via Lovable will be committed automatically to this repo.
+🧠 AI Architecture
+The system uses a Hybrid AI Approach:
 
-**Use your preferred IDE**
+Cloud Inference: Tries to fetch results from Hugging Face models via the proxy.
+Local Fallback: If the API is unreachable (410/403/500 errors), a local rule-based "Brain" takes over to ensure the app never crashes during an emergency.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
-
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
-
-Follow these steps:
-
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
-```
-
-**Edit a file directly in GitHub**
-
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
-
-**Use GitHub Codespaces**
-
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
-
-## What technologies are used for this project?
-
-This project is built with:
-
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
-
-## How can I deploy this project?
-
-Simply open [Lovable](https://lovable.dev/projects/REPLACE_WITH_PROJECT_ID) and click on Share -> Publish.
-
-## Can I connect a custom domain to my Lovable project?
-
-Yes, you can!
-
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
-
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+📄 License
+Distributed under the MIT License.
