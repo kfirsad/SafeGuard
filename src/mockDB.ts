@@ -32,3 +32,8 @@ export const checkResponderInRemoteDB = async (
     return false;
   }
 };
+
+export const getResponderByPhone = (phone: string): WorkerRecord | null => {
+  const responder = responderDB.find((r) => r.phone === phone);
+  return responder || null;
+};

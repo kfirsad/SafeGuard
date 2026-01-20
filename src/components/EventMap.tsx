@@ -183,15 +183,6 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
       >
         {mapInstance && (
           <>
-            {userPos && (
-              <AdvancedMarker
-                map={mapInstance}
-                position={userPos}
-                icon={ICONS.USER}
-                title="My Location"
-              />
-            )}
-
             {events.map(ev => (
               <AdvancedMarker
                 key={ev.id}
@@ -219,8 +210,29 @@ const EventMap: React.FC<EventMapProps> = ({ events, selectedEvent, onEventSelec
               direction: 'ltr', 
               textAlign: 'left', 
               padding: '10px',
-              minWidth: '200px' 
+              minWidth: '200px',
+              position: 'relative'
             }}>
+              <button
+                onClick={() => onEventSelect(null)}
+                style={{
+                  position: 'absolute',
+                  top: '6px',
+                  right: '6px',
+                  width: '24px',
+                  height: '24px',
+                  borderRadius: '12px',
+                  border: 'none',
+                  background: '#f1f1f1',
+                  color: '#333',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  lineHeight: '24px'
+                }}
+                aria-label="Close"
+              >
+                ×
+              </button>
               <h3 style={{ fontWeight: 'bold', margin: '0 0 5px 0', fontSize: '16px', textTransform: 'capitalize' }}>
                 {selectedEvent.type}
               </h3>
