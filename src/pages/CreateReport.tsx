@@ -8,9 +8,10 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { auth, createReport, getNextEventId, linkEventToUser, storage, userDB } from "@/lib/firebase";
+import { auth, storage, userDB } from "@/lib/firebase"; 
 import { getDownloadURL, ref, uploadBytes } from "firebase/storage";
 import { addDoc, collection, doc, serverTimestamp, updateDoc } from "firebase/firestore";
+import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL } from "@/config/api";
 
 // --- Types ---
 export type EmergencyType = "medical" | "police" | "fire" | "other";
@@ -23,150 +24,179 @@ interface Category {
   keywords: string[]; 
 }
 
-// --- Configuration ---
-// הערה: מומלץ להעביר את הטוקן ל-.env
-const HF_API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli";
-const HF_TOKEN = "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"; 
-
+// --- CONFIGURATION ---
+// כאן אנחנו משתמשים בכתובת ה-Proxy שהגדרנו ב-vite.config.ts
+// במקום לפנות ל-https://api-inference..., אנחנו פונים ל-/api/hf/...
+// שים לב: בלי https ובלי api-inference, רק הנתיב המקומי
 const categories: Category[] = [
   { 
     id: "medical", 
     label: "Medical", 
     icon: Heart, 
     color: "bg-red-500/10 text-red-500 hover:bg-red-500/20", 
-    keywords: ["medical", "doctor", "blood", "pain", "hurt", "injury", "ambulance"] 
+    keywords: ["medical", "doctor", "blood", "pain", "hurt", "injury", "ambulance", "sick", "hospital", "broken", "wound"] 
   },
   { 
     id: "police", 
     label: "Police", 
     icon: Shield, 
     color: "bg-blue-500/10 text-blue-500 hover:bg-blue-500/20", 
-    keywords: ["police", "gun", "robbery", "fight", "attack", "kill", "shoot"] 
+    keywords: ["police", "gun", "robbery", "fight", "attack", "kill", "shoot", "theft", "crime", "assault", "threat"] 
   },
   { 
     id: "fire", 
     label: "Fire", 
     icon: Flame, 
     color: "bg-orange-500/10 text-orange-500 hover:bg-orange-500/20", 
-    keywords: ["fire", "burn", "smoke", "explosion", "flame", "gas"] 
+    keywords: ["fire", "burn", "smoke", "explosion", "flame", "gas", "burning", "heat"] 
   },
   { 
     id: "other", 
     label: "Other", 
     icon: AlertTriangle, 
     color: "bg-yellow-500/10 text-yellow-500 hover:bg-yellow-500/20", 
-    keywords: ["lost", "stuck", "flood", "animal", "help"] 
+    keywords: ["lost", "stuck", "flood", "animal", "help", "other", "emergency"] 
   },
 ];
 
-// --- Hooks ---
-
-// 1. Speech Recognition Hook
-const useSpeechRecognition = (onResult: (text: string) => void) => {
-  const [isListening, setIsListening] = useState(false);
-  const [hasSupport, setHasSupport] = useState(false);
-  const recognitionRef = useRef<any>(null);
-  const onResultRef = useRef(onResult);
-
-  useEffect(() => { onResultRef.current = onResult; }, [onResult]);
-
-  useEffect(() => {
-    const SpeechConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechConstructor) {
-        setHasSupport(false);
-        return;
-    }
-    setHasSupport(true);
-    const recognition = new SpeechConstructor();
-    recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.lang = 'en-US';
-
-    recognition.onresult = (event: any) => {
-      const latestResult = event.results[event.results.length - 1];
-      const transcript = latestResult[0].transcript;
-      if (transcript) onResultRef.current(transcript);
-    };
-
-    recognition.onerror = () => setIsListening(false);
-    recognition.onend = () => setIsListening(false);
-    recognitionRef.current = recognition;
-  }, []);
-
-  const toggleListening = useCallback(() => {
-    if (!recognitionRef.current) return;
-    if (isListening) {
-      recognitionRef.current.stop();
-      setIsListening(false);
-    } else {
-      recognitionRef.current.start();
-      setIsListening(true);
-    }
-  }, [isListening]);
-
-  return { isListening, toggleListening, hasSupport };
-};
-
-// 2. AI Classification Hook
+// --- AI Classification Hook (Using Groq Llama 3.3 70B) ---
 const useEmergencyClassification = (description: string) => {
   const [suggestedCategory, setSuggestedCategory] = useState<EmergencyType | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
-    if (!description || description.length < 3) { setSuggestedCategory(null); return; }
+    if (!description || description.length < 5) { 
+      setSuggestedCategory(null); 
+      return; 
+    }
     
-    // בדיקה מקומית מהירה
+    // Local keyword matching (instant feedback)
     const lowerDesc = description.toLowerCase();
     const localMatch = categories.find(c => c.keywords.some(k => lowerDesc.includes(k)));
-    if (localMatch) { setSuggestedCategory(localMatch.id); return; }
+    if (localMatch) { 
+        setSuggestedCategory(localMatch.id); 
+    }
 
-    // בדיקת AI (HuggingFace)
+    // AI classification with debounce
     const timeoutId = setTimeout(async () => {
-      if (!HF_TOKEN) return;
       setIsAnalyzing(true);
       try {
-        const response = await fetch(HF_API_URL, {
+        const response = await fetch(GROQ_API_URL, {
           method: "POST",
-          headers: { Authorization: `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            inputs: description, 
-            parameters: { candidate_labels: ["medical emergency", "police emergency", "fire emergency", "other emergency"] } 
+          headers: { 
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${GROQ_API_KEY}`
+          },
+          body: JSON.stringify({
+            model: GROQ_MODEL,
+            messages: [
+              {
+                role: "system",
+                content: "You are an emergency classification AI. Analyze the emergency description and classify it into EXACTLY ONE category. Respond with ONLY the category name, nothing else.\n\nCategories:\n- medical (health, injury, illness)\n- police (crime, violence, threats)\n- fire (fire, smoke, explosion)\n- other (everything else)\n\nRespond with only one word: medical, police, fire, or other."
+              },
+              {
+                role: "user",
+                content: `Classify this emergency: "${description}"\n\nCategory:`
+              }
+            ],
+            temperature: 0.3,
+            max_tokens: 10,
           }),
         });
-        const result = await response.json();
-        if (result.labels?.[0] && result.scores?.[0] > 0.4) {
-          const label = result.labels[0];
-          if (label.includes("medical")) setSuggestedCategory("medical");
-          else if (label.includes("police")) setSuggestedCategory("police");
-          else if (label.includes("fire")) setSuggestedCategory("fire");
-          else setSuggestedCategory("other");
+
+        if (!response.ok) {
+          console.warn("Groq classification error:", response.status);
+          throw new Error(`API Error: ${response.status}`);
         }
-      } catch (e) { console.error(e); } finally { setIsAnalyzing(false); }
-    }, 1000);
+        
+        const result = await response.json();
+        const aiResponse = result.choices?.[0]?.message?.content?.trim().toLowerCase() || "";
+        
+        console.log("🤖 AI Classification:", aiResponse);
+        
+        // Parse AI response
+        if (aiResponse.includes("medical")) {
+          setSuggestedCategory("medical");
+        } else if (aiResponse.includes("police")) {
+          setSuggestedCategory("police");
+        } else if (aiResponse.includes("fire")) {
+          setSuggestedCategory("fire");
+        } else if (aiResponse.includes("other")) {
+          setSuggestedCategory("other");
+        }
+        // If local match already found something, keep it if AI doesn't override
+        
+      } catch (e) { 
+        console.error("AI Classification failed:", e); 
+        // Keep local match if AI fails
+      } finally { 
+        setIsAnalyzing(false); 
+      }
+    }, 1500); // 1.5 second debounce
+
     return () => clearTimeout(timeoutId);
   }, [description]);
 
   return { suggestedCategory, isAnalyzing };
 };
 
-// --- Main Component ---
+// --- Speech Hook ---
+const useSpeechRecognition = (onResult: (text: string) => void) => {
+    const [isListening, setIsListening] = useState(false);
+    const [hasSupport, setHasSupport] = useState(false);
+    const recognitionRef = useRef<any>(null);
+    const onResultRef = useRef(onResult);
+  
+    useEffect(() => { onResultRef.current = onResult; }, [onResult]);
+  
+    useEffect(() => {
+      const SpeechConstructor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechConstructor) {
+          setHasSupport(false);
+          return;
+      }
+      setHasSupport(true);
+      const recognition = new SpeechConstructor();
+      recognition.continuous = true;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+  
+      recognition.onresult = (event: any) => {
+        const latestResult = event.results[event.results.length - 1];
+        const transcript = latestResult[0].transcript;
+        if (transcript) onResultRef.current(transcript);
+      };
+  
+      recognition.onerror = () => setIsListening(false);
+      recognition.onend = () => setIsListening(false);
+      recognitionRef.current = recognition;
+    }, []);
+  
+    const toggleListening = useCallback(() => {
+      if (!recognitionRef.current) return;
+      if (isListening) {
+        recognitionRef.current.stop();
+        setIsListening(false);
+      } else {
+        recognitionRef.current.start();
+        setIsListening(true);
+      }
+    }, [isListening]);
+  
+    return { isListening, toggleListening, hasSupport };
+  };
 
+// --- Main Component ---
 const CreateReport = () => {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [description, setDescription] = useState("");
-  
-  // Media State
   const [images, setImages] = useState<File[]>([]);
   const [videos, setVideos] = useState<File[]>([]);
-  const [audio, setAudio] = useState<File[]>([]);
   const [imagePreviews, setImagePreviews] = useState<{ name: string; url: string }[]>([]);
   const [videoPreviews, setVideoPreviews] = useState<{ name: string; url: string }[]>([]);
-  
-  // UI State
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [activePicker, setActivePicker] = useState<"image" | "video" | null>(null);
   
-  // Refs
   const imageInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const imageCameraInputRef = useRef<HTMLInputElement>(null);
@@ -175,7 +205,6 @@ const CreateReport = () => {
   const navigate = useNavigate();
   const { toast } = useToast();
 
-  // AI & Speech Hooks
   const { suggestedCategory, isAnalyzing } = useEmergencyClassification(description);
   
   const handleSpeechResult = (text: string) => {
@@ -187,7 +216,7 @@ const CreateReport = () => {
   
   const { isListening, toggleListening, hasSupport } = useSpeechRecognition(handleSpeechResult);
 
-  // File Preview Effects
+  // File Previews
   useEffect(() => {
     const urls = images.map((file) => ({ name: file.name, url: URL.createObjectURL(file) }));
     setImagePreviews(urls);
@@ -200,18 +229,7 @@ const CreateReport = () => {
     return () => urls.forEach((item) => URL.revokeObjectURL(item.url));
   }, [videos]);
 
-  // Helpers
-  const getLocation = () =>
-    new Promise<{ latitude: number; longitude: number } | null>((resolve) => {
-      if (!navigator.geolocation) { resolve(null); return; }
-      navigator.geolocation.getCurrentPosition(
-        (position) => resolve({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-        () => resolve(null),
-        { enableHighAccuracy: true, maximumAge: 10000 }
-      );
-    });
-
-  const uploadFiles = async (eventId: string, files: File[], folder: "images" | "videos" | "audio") => {
+  const uploadFiles = async (eventId: string, files: File[], folder: "images" | "videos") => {
     if (!files.length) return [];
     const uploads = files.map(async (file) => {
       const storageRef = ref(storage, `events/${eventId}/${folder}/${Date.now()}_${file.name}`);
@@ -231,13 +249,12 @@ const CreateReport = () => {
     setIsSubmitting(true);
 
     try {
-      const eventId = await getNextEventId();
-      const location = await getLocation();
+      const eventId = `EVT-${Date.now()}`; 
       
       const eventData = {
         id: eventId,
         timeStamp: new Date().toISOString(),
-        location: location,
+        location: null, 
         type: selectedCategory,
         severity: null,
         isActive: true,
@@ -246,36 +263,23 @@ const CreateReport = () => {
         responderPhone: null,
       };
 
-      await createReport(eventId, currentUserPhone, eventData);
-      await linkEventToUser(currentUserPhone, eventId);
-
-      // Add initial description message
-      if (eventData.description) {
-        await addDoc(collection(userDB, "events", eventId, "messages"), {
+      await addDoc(collection(userDB, "events"), eventData);
+      
+      await addDoc(collection(userDB, "events", eventId, "messages"), {
           text: eventData.description,
           sender: "user",
           createdAt: serverTimestamp(),
           type: "text",
-        });
-      }
+      });
 
-      // Background Uploads
-      const [imageUrls, videoUrls, audioUrls] = await Promise.all([
+      const [imageUrls, videoUrls] = await Promise.all([
         uploadFiles(eventId, images, "images"),
         uploadFiles(eventId, videos, "videos"),
-        uploadFiles(eventId, audio, "audio"),
       ]);
 
       await updateDoc(doc(userDB, "events", eventId), {
-        images: imageUrls, videos: videoUrls, audio: audioUrls,
+        images: imageUrls, videos: videoUrls
       });
-
-      // Add media messages
-      const messageWrites: Promise<any>[] = [];
-      [...imageUrls].forEach(url => messageWrites.push(addDoc(collection(userDB, "events", eventId, "messages"), { text: url, sender: "user", createdAt: serverTimestamp(), type: "image" })));
-      [...videoUrls].forEach(url => messageWrites.push(addDoc(collection(userDB, "events", eventId, "messages"), { text: url, sender: "user", createdAt: serverTimestamp(), type: "video" })));
-      
-      await Promise.all(messageWrites);
 
       toast({ title: "Report Submitted", description: "Responders notified." });
       navigate(`/event/${eventId}/chat`);
@@ -289,20 +293,20 @@ const CreateReport = () => {
   };
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background text-foreground">
       {/* Header */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border">
         <div className="flex items-center gap-4 px-4 py-4">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
             <ArrowLeft className="w-5 h-5" />
           </Button>
-          <h1 className="text-lg font-display font-semibold text-foreground">New Emergency Report</h1>
+          <h1 className="text-lg font-display font-semibold">New Emergency Report</h1>
         </div>
       </div>
 
       <div className="p-6 space-y-6 max-w-lg mx-auto">
         
-        {/* Description & Speech */}
+        {/* Description */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex justify-between items-end mb-3">
              <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Description</h2>
@@ -351,8 +355,8 @@ const CreateReport = () => {
                 <button
                   key={category.id}
                   onClick={() => setSelectedCategory(category.id)}
-                  className={`relative glass-card p-4 flex items-center gap-3 transition-all duration-200 border 
-                    ${isSelected ? "ring-2 ring-primary bg-primary/10 border-primary" : "hover:bg-card/80 border-transparent"}
+                  className={`relative p-4 flex items-center gap-3 transition-all duration-200 border rounded-xl
+                    ${isSelected ? "ring-2 ring-primary bg-primary/10 border-primary" : "bg-card border-border hover:bg-accent/50"}
                     ${isSuggested && !isSelected ? "ring-2 ring-primary/50 border-primary/50" : ""}
                   `}
                 >
@@ -365,11 +369,10 @@ const CreateReport = () => {
           </div>
         </motion.div>
 
-        {/* Media Attachments (Combined Logic) */}
+        {/* Media Attachments */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
            <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">Attachments</h2>
            
-           {/* Hidden Inputs */}
            <input ref={imageInputRef} type="file" accept="image/*" multiple className="hidden" onChange={(e) => setImages(prev => [...prev, ...Array.from(e.target.files || [])])} />
            <input ref={imageCameraInputRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => setImages(prev => [...prev, ...Array.from(e.target.files || [])])} />
            <input ref={videoInputRef} type="file" accept="video/*" multiple className="hidden" onChange={(e) => setVideos(prev => [...prev, ...Array.from(e.target.files || [])])} />
@@ -384,7 +387,6 @@ const CreateReport = () => {
              </Button>
            </div>
            
-           {/* Picker Modal (Simplified) */}
            {activePicker && (
             <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-4">
               <div className="w-full max-w-sm rounded-2xl bg-card p-4 shadow-xl space-y-3">
@@ -395,7 +397,6 @@ const CreateReport = () => {
             </div>
            )}
 
-           {/* Previews */}
            {(images.length > 0 || videos.length > 0) && (
              <div className="mt-4 grid grid-cols-4 gap-2">
                 {imagePreviews.map(p => <img key={p.url} src={p.url} className="aspect-square rounded-md object-cover border border-border" />)}
@@ -406,7 +407,7 @@ const CreateReport = () => {
 
         {/* Submit */}
         <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="pt-4 pb-8">
-          <Button variant="destructive" size="xl" className="w-full h-14 text-lg shadow-lg shadow-red-500/20" onClick={handleSubmit} disabled={isSubmitting}>
+          <Button variant="destructive" size="lg" className="w-full h-14 text-lg shadow-lg shadow-red-500/20" onClick={handleSubmit} disabled={isSubmitting}>
             {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2"/> : <Send className="w-5 h-5 mr-2" />}
             {isSubmitting ? "Sending..." : "Submit Report"}
           </Button>
