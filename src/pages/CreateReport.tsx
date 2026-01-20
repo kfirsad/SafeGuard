@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import { 
@@ -9,38 +9,17 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 
-// --- Custom Type Definitions for Web Speech API ---
-// We define these here because they aren't always standard in every TS environment
-interface SpeechRecognitionResult {
-  [index: number]: { transcript: string };
-}
-
-interface SpeechRecognitionResultList {
-  length: number;
-  [index: number]: SpeechRecognitionResult;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  resultIndex: number;
-  results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-}
-
+// --- Custom Type Definitions ---
+interface SpeechRecognitionResult { [index: number]: { transcript: string }; isFinal: boolean; }
+interface SpeechRecognitionResultList { length: number; [index: number]: SpeechRecognitionResult; }
+interface SpeechRecognitionEvent extends Event { resultIndex: number; results: SpeechRecognitionResultList; }
+interface SpeechRecognitionErrorEvent extends Event { error: string; }
 interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  start: () => void;
-  stop: () => void;
+  continuous: boolean; interimResults: boolean; lang: string;
+  start: () => void; stop: () => void;
   onresult: (event: SpeechRecognitionEvent) => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  onend: () => void;
+  onerror: (event: SpeechRecognitionErrorEvent) => void; onend: () => void;
 }
-
-// Extend the Window interface to include webkitSpeechRecognition
 declare global {
   interface Window {
     SpeechRecognition: { new (): SpeechRecognition };
@@ -48,18 +27,10 @@ declare global {
   }
 }
 
-// --- App Types ---
+// --- App Types & Config ---
 type EmergencyType = "medical" | "police" | "fire" | "other";
+interface Category { id: EmergencyType; label: string; icon: LucideIcon; color: string; keywords: string[]; }
 
-interface Category {
-  id: EmergencyType;
-  label: string;
-  icon: LucideIcon;
-  color: string;
-  keywords: string[];
-}
-
-// --- Configuration ---
 const HF_API_URL = "https://api-inference.huggingface.co/models/MoritzLaurer/mDeBERTa-v3-base-mnli-xnli";
 const HF_TOKEN = import.meta.env.VITE_HUGGING_FACE_TOKEN; 
 
@@ -138,126 +109,98 @@ const categories: Category[] = [
   },
 ];
 
-// --- Hook: Browser Speech Recognition (Type Safe) ---
+// --- FIXED HOOK: Speech Recognition ---
 const useSpeechRecognition = (onResult: (text: string) => void) => {
   const [isListening, setIsListening] = useState(false);
-  const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
+  const [hasSupport, setHasSupport] = useState(false); // State to track support
+  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const onResultRef = useRef(onResult);
 
   useEffect(() => {
-    // Safely check for browser support with type assertion
-    const SpeechRecognitionConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
+    onResultRef.current = onResult;
+  }, [onResult]);
+
+  useEffect(() => {
+    // Check support inside useEffect to ensure window is available
+    const SpeechConstructor = window.SpeechRecognition || window.webkitSpeechRecognition;
     
-    if (SpeechRecognitionConstructor) {
-      const recognitionInstance = new SpeechRecognitionConstructor();
-      recognitionInstance.continuous = true;
-      recognitionInstance.interimResults = true;
-      recognitionInstance.lang = 'en-US';
-
-      recognitionInstance.onresult = (event: SpeechRecognitionEvent) => {
-        let transcript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          transcript += event.results[i][0].transcript;
-        }
-        if (transcript) {
-            onResult(transcript);
-        }
-      };
-
-      recognitionInstance.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error("Speech recognition error", event.error);
-        setIsListening(false);
-      };
-
-      recognitionInstance.onend = () => {
-        setIsListening(false);
-      };
-
-      setRecognition(recognitionInstance);
+    if (!SpeechConstructor) {
+        setHasSupport(false);
+        return;
     }
-  }, []); // Empty dependency array means this runs once on mount
+
+    setHasSupport(true);
+    const recognition = new SpeechConstructor();
+    recognition.continuous = true;
+    recognition.interimResults = false;
+    recognition.lang = 'en-US';
+
+    recognition.onresult = (event: SpeechRecognitionEvent) => {
+      const latestResult = event.results[event.results.length - 1];
+      const transcript = latestResult[0].transcript;
+      if (transcript) {
+        onResultRef.current(transcript);
+      }
+    };
+
+    recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      console.error("Speech error", event.error);
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognitionRef.current = recognition;
+  }, []);
 
   const toggleListening = useCallback(() => {
-    if (!recognition) return;
+    if (!recognitionRef.current) return;
 
     if (isListening) {
-      recognition.stop();
+      recognitionRef.current.stop();
       setIsListening(false);
     } else {
-      recognition.start();
+      recognitionRef.current.start();
       setIsListening(true);
     }
-  }, [isListening, recognition]);
+  }, [isListening]);
 
-  return { isListening, toggleListening, hasSupport: !!recognition };
+  return { isListening, toggleListening, hasSupport };
 };
 
-// --- Hook: Intelligent Classification ---
+// --- Hook: Classification (Unchanged) ---
 const useEmergencyClassification = (description: string) => {
   const [suggestedCategory, setSuggestedCategory] = useState<EmergencyType | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
   useEffect(() => {
-    if (!description || description.length < 3) {
-      setSuggestedCategory(null);
-      return;
-    }
-
+    if (!description || description.length < 3) { setSuggestedCategory(null); return; }
+    
     const lowerDesc = description.toLowerCase();
+    const localMatch = categories.find(c => c.keywords.some(k => lowerDesc.includes(k)));
+    if (localMatch) { setSuggestedCategory(localMatch.id); return; }
 
-    // 1. INSTANT Local Match
-    let foundLocalMatch: EmergencyType | null = null;
-    for (const cat of categories) {
-      if (cat.keywords.some(k => lowerDesc.includes(k))) {
-        foundLocalMatch = cat.id;
-        break; 
-      }
-    }
-
-    if (foundLocalMatch) {
-      setSuggestedCategory(foundLocalMatch);
-      return; 
-    }
-
-    // 2. Multilingual API Match (Debounced)
     const timeoutId = setTimeout(async () => {
       if (!HF_TOKEN) return;
-
       setIsAnalyzing(true);
       try {
         const response = await fetch(HF_API_URL, {
           method: "POST",
-          headers: {
-            Authorization: `Bearer ${HF_TOKEN}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            inputs: description,
-            parameters: {
-              candidate_labels: ["medical emergency", "police emergency", "fire emergency", "other emergency"]
-            }
-          }),
+          headers: { Authorization: `Bearer ${HF_TOKEN}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ inputs: description, parameters: { candidate_labels: ["medical emergency", "police emergency", "fire emergency", "other emergency"] } }),
         });
-
         const result = await response.json();
-
-        if (result.labels && result.scores) {
-          const topLabel = result.labels[0];
-          const topScore = result.scores[0];
-
-          if (topScore > 0.4) {
-            if (topLabel.includes("medical")) setSuggestedCategory("medical");
-            else if (topLabel.includes("police")) setSuggestedCategory("police");
-            else if (topLabel.includes("fire")) setSuggestedCategory("fire");
-            else if (topLabel.includes("other")) setSuggestedCategory("other");
-          }
+        if (result.labels?.[0] && result.scores?.[0] > 0.4) {
+          const label = result.labels[0];
+          if (label.includes("medical")) setSuggestedCategory("medical");
+          else if (label.includes("police")) setSuggestedCategory("police");
+          else if (label.includes("fire")) setSuggestedCategory("fire");
+          else setSuggestedCategory("other");
         }
-      } catch (error) {
-        console.error("AI Classification failed:", error);
-      } finally {
-        setIsAnalyzing(false);
-      }
-    }, 1000); 
-
+      } catch (e) { console.error(e); } finally { setIsAnalyzing(false); }
+    }, 1000);
     return () => clearTimeout(timeoutId);
   }, [description]);
 
@@ -274,28 +217,20 @@ const CreateReport = () => {
   const { suggestedCategory, isAnalyzing } = useEmergencyClassification(description);
 
   const handleSpeechResult = (text: string) => {
-      setDescription(prev => {
-          if (prev.endsWith(text)) return prev;
-          return text;
-      });
+    setDescription(prev => {
+      const trimmedPrev = prev.trim();
+      return trimmedPrev ? `${trimmedPrev} ${text}` : text;
+    });
   };
 
   const { isListening, toggleListening, hasSupport } = useSpeechRecognition(handleSpeechResult);
 
   const handleSubmit = () => {
     if (!selectedCategory || !description.trim()) {
-      toast({
-        title: "Missing Information",
-        description: "Please select a category and add a description",
-        variant: "destructive",
-      });
+      toast({ title: "Missing Information", description: "Please select a category and add a description", variant: "destructive" });
       return;
     }
-
-    toast({
-      title: "Report Submitted",
-      description: "Emergency responders have been notified",
-    });
+    toast({ title: "Report Submitted", description: "Emergency responders have been notified" });
     navigate("/chat");
   };
 
@@ -314,32 +249,22 @@ const CreateReport = () => {
       <div className="p-6 space-y-6 max-w-md mx-auto">
         
         {/* Description Input */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
           <div className="flex justify-between items-end mb-3">
             <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-2">
               Description
             </h2>
             
             <div className="flex items-center gap-2">
-                {/* AI Loading State */}
                 <AnimatePresence>
                 {isAnalyzing && (
-                    <motion.div 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0 }}
-                    className="flex items-center gap-1 text-xs text-primary"
-                    >
-                    <Loader2 className="w-3 h-3 animate-spin" />
-                    Analyzing...
+                    <motion.div initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0 }} className="flex items-center gap-1 text-xs text-primary">
+                    <Loader2 className="w-3 h-3 animate-spin" /> Analyzing...
                     </motion.div>
                 )}
                 </AnimatePresence>
 
-                {/* Speech to Text Button */}
+                {/* Microphone Button */}
                 {hasSupport && (
                     <Button
                         size="sm"
@@ -348,15 +273,9 @@ const CreateReport = () => {
                         className={`h-8 px-3 transition-all duration-300 ${isListening ? "animate-pulse" : ""}`}
                     >
                         {isListening ? (
-                            <>
-                                <MicOff className="w-3 h-3 mr-1.5" />
-                                Stop
-                            </>
+                            <><MicOff className="w-3 h-3 mr-1.5" /> Stop</>
                         ) : (
-                            <>
-                                <Mic className="w-3 h-3 mr-1.5" />
-                                Dictate
-                            </>
+                            <><Mic className="w-3 h-3 mr-1.5" /> Dictate</>
                         )}
                     </Button>
                 )}
@@ -384,18 +303,13 @@ const CreateReport = () => {
           </div>
         </motion.div>
 
-        {/* Category Selection */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-        >
+        {/* Category Selection  */}
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1 }}>
           <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider flex items-center gap-2">
             Emergency Type
             {suggestedCategory && !selectedCategory && (
               <span className="text-xs bg-primary/10 text-primary px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                <Sparkles className="w-3 h-3" />
-                Suggestion
+                <Sparkles className="w-3 h-3" /> Suggestion
               </span>
             )}
           </h2>
@@ -403,17 +317,13 @@ const CreateReport = () => {
             {categories.map((category) => {
               const isSelected = selectedCategory === category.id;
               const isSuggested = suggestedCategory === category.id;
-
               return (
                 <button
                   key={category.id}
                   onClick={() => setSelectedCategory(category.id)}
                   className={`
                     relative p-4 flex items-center gap-3 rounded-xl border transition-all duration-200
-                    ${isSelected 
-                      ? `ring-2 ring-primary bg-primary/5 border-primary` 
-                      : "bg-card border-border hover:bg-accent/50"
-                    }
+                    ${isSelected ? `ring-2 ring-primary bg-primary/5 border-primary` : "bg-card border-border hover:bg-accent/50"}
                     ${isSuggested && !isSelected ? "ring-2 ring-primary/50 border-primary/50" : ""}
                   `}
                 >
@@ -422,7 +332,6 @@ const CreateReport = () => {
                       <Sparkles className="w-2 h-2" /> Suggested
                     </div>
                   )}
-
                   <div className={`w-10 h-10 rounded-lg ${category.color} flex items-center justify-center shrink-0`}>
                     <category.icon className="w-5 h-5" />
                   </div>
@@ -434,44 +343,27 @@ const CreateReport = () => {
         </motion.div>
 
         {/* Media Attachments */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-        >
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
           <h2 className="text-sm font-semibold text-muted-foreground mb-3 uppercase tracking-wider">
             Attachments (Optional)
           </h2>
           <div className="flex gap-3">
             <Button variant="outline" className="flex-1 h-20 flex-col gap-2 border-dashed">
-              <Camera className="w-6 h-6 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Photo</span>
+              <Camera className="w-6 h-6 text-muted-foreground" /> <span className="text-xs text-muted-foreground">Photo</span>
             </Button>
             <Button variant="outline" className="flex-1 h-20 flex-col gap-2 border-dashed">
-              <Video className="w-6 h-6 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Video</span>
+              <Video className="w-6 h-6 text-muted-foreground" /> <span className="text-xs text-muted-foreground">Video</span>
             </Button>
             <Button variant="outline" className="flex-1 h-20 flex-col gap-2 border-dashed">
-              <Mic className="w-6 h-6 text-muted-foreground" />
-              <span className="text-xs text-muted-foreground">Audio</span>
+              <Mic className="w-6 h-6 text-muted-foreground" /> <span className="text-xs text-muted-foreground">Audio</span>
             </Button>
           </div>
         </motion.div>
 
         {/* Submit */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="pt-4 pb-8"
-        >
-          <Button
-            size="lg"
-            className="w-full h-14 text-lg bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/20"
-            onClick={handleSubmit}
-          >
-            <Send className="w-5 h-5 mr-2" />
-            Submit Report
+        <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.3 }} className="pt-4 pb-8">
+          <Button size="lg" className="w-full h-14 text-lg bg-red-600 hover:bg-red-700 text-white shadow-lg shadow-red-500/20" onClick={handleSubmit}>
+            <Send className="w-5 h-5 mr-2" /> Submit Report
           </Button>
         </motion.div>
       </div>
