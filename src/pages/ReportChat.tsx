@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { 
   ArrowLeft, Send, Mic, Image as ImageIcon, Lock, 
   Loader2, MicOff, Globe, Sparkles, Volume2, Square, ShieldAlert, User, 
-  Bot, Video, BrainCircuit, Headphones, VolumeX
+  Bot, BrainCircuit, Headphones, VolumeX
 } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -53,7 +53,6 @@ const getBrowserLang = (): keyof typeof SUPPORTED_LANGUAGES => {
 
 // --- API Helpers ---
 
-// 1. Cache for Smart Replies
 const responseCache = new Map<string, { responses: string[], timestamp: number }>();
 const CACHE_DURATION = 10 * 60 * 1000; 
 
@@ -88,7 +87,6 @@ const fetchSmartReplies = async (lastUserMessage: string): Promise<string[]> => 
   }
 };
 
-// 2. Translation
 const translateText = async (text: string, sourceLang: string, targetLang: string) => {
     if (sourceLang === targetLang) return null;
     try {
@@ -98,7 +96,6 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
     } catch { return null; }
 };
 
-// 3. Gemini Alt Text
 const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> => {
   if (!GEMINI_API_KEY) return null;
   try {
@@ -146,7 +143,7 @@ const ReportChat = () => {
   const [isUploading, setIsUploading] = useState(false);
   
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
-  const [autoTTS, setAutoTTS] = useState(false); // <--- State for Auto Text-to-Speech
+  const [autoTTS, setAutoTTS] = useState(false); 
   
   const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
   const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
@@ -159,7 +156,7 @@ const ReportChat = () => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
-  const lastSpokenMessageId = useRef<string | null>(null); // <--- Track last auto-spoken message
+  const lastSpokenMessageId = useRef<string | null>(null);
   const processingAltRef = useRef<Set<string>>(new Set());
 
   // --- TTS Handler ---
@@ -216,26 +213,18 @@ const ReportChat = () => {
       setMessages(msgs);
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
-      // --- AUTO-TTS LOGIC (Driver Mode) ---
-      // 1. Must be in Responder Mode
-      // 2. AutoTTS must be ON
-      // 3. Last message must be from User (Citizen)
-      // 4. Must be a NEW message we haven't spoken yet
+      // Auto-TTS Logic
       if (isResponderMode && autoTTS && msgs.length > 0) {
         const lastMsg = msgs[msgs.length - 1];
         if (lastMsg.sender === "user" && lastMsg.id !== lastSpokenMessageId.current) {
-            // Check if it's a recent message (not history loading)
             const now = Date.now();
             const msgTime = lastMsg.createdAt?.toDate ? lastMsg.createdAt.toDate().getTime() : 0;
-            if (now - msgTime < 10000) { // Only auto-speak if received in last 10s
+            if (now - msgTime < 10000) { 
                 lastSpokenMessageId.current = lastMsg.id;
-                // Speak the translation if available (so FR understands), otherwise original text
                 const textToRead = lastMsg.translation || lastMsg.text; 
-                // Determine language to speak
                 const langToRead = lastMsg.translation ? responderLanguage : (lastMsg.language || 'en');
                 handleSpeak(textToRead, lastMsg.id, langToRead);
             } else {
-                // If it's old history, just mark as read so we don't speak it later
                 lastSpokenMessageId.current = lastMsg.id;
             }
         }
@@ -273,7 +262,7 @@ const ReportChat = () => {
     });
 
     return () => { unsubReport(); unsubMessages(); };
-  }, [eventId, isResponderMode, autoTTS]); // Added dependencies for AutoTTS
+  }, [eventId, isResponderMode, autoTTS]); 
 
   const handleSendText = async (textOverride?: string) => {
     const textToSend = textOverride || newMessage;
@@ -333,11 +322,12 @@ const ReportChat = () => {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-48">
         {messages.map((message) => {
-          const isUser = message.sender === "user";
+          const isMe = message.sender === (isResponderMode ? "responder" : "user");
+          
           return (
-          <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+          <motion.div key={message.id} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
             <div className={`max-w-[85%] relative`}>
-              <div className={`rounded-2xl px-4 py-3 shadow-sm ${isUser ? "bg-primary text-primary-foreground rounded-br-none" : "bg-secondary text-secondary-foreground rounded-bl-none"}`}>
+              <div className={`rounded-2xl px-4 py-3 shadow-sm ${isMe ? "bg-primary text-primary-foreground rounded-br-none" : "bg-secondary text-secondary-foreground rounded-bl-none"}`}>
                 
                 {message.type === "text" && (
                   <div className="flex flex-col gap-1">
@@ -348,7 +338,7 @@ const ReportChat = () => {
                         </button>
                       </div>
                       {message.translation && (
-                          <div className={`mt-2 pt-2 border-t text-xs italic flex items-center gap-1.5 ${isUser ? "border-white/20 text-white/90" : "border-black/10 text-black/70"}`}>
+                          <div className={`mt-2 pt-2 border-t text-xs italic flex items-center gap-1.5 ${isMe ? "border-white/20 text-white/90" : "border-black/10 text-black/70"}`}>
                             <Sparkles className="w-3 h-3 opacity-70" />
                             <span>{message.translation}</span>
                           </div>
@@ -445,19 +435,27 @@ const ReportChat = () => {
                       <DropdownMenuContent align="end">{Object.entries(SUPPORTED_LANGUAGES).map(([k,v]) => <DropdownMenuItem key={k} onClick={() => setResponderLanguage(k as any)}>{v.name}</DropdownMenuItem>)}</DropdownMenuContent>
                     </DropdownMenu>
 
-                    {/* NEW: Auto-TTS (Driver Mode) Toggle */}
-                    <div className="w-px h-4 bg-border mx-1" />
-                    <button 
-                      onClick={() => setAutoTTS(!autoTTS)} 
-                      className={`p-1.5 rounded-full transition-all ${autoTTS ? "bg-green-500/20 text-green-600" : "text-muted-foreground hover:bg-black/5"}`}
-                      title="Auto-Play Messages (Driver Mode)"
-                    >
-                      {autoTTS ? <Headphones className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
-                    </button>
+                    {/* NEW: Auto-TTS (Driver Mode) Toggle - Only for Responder */}
+                    {isResponderMode && (
+                      <>
+                        <div className="w-px h-4 bg-border mx-1" />
+                        <div className="flex items-center gap-2">
+                            <span className="text-[10px] font-medium text-muted-foreground uppercase tracking-tight">Auto Text To Speech</span>
+                            <button 
+                              onClick={() => setAutoTTS(!autoTTS)} 
+                              className={`p-1.5 rounded-full transition-all ${autoTTS ? "bg-green-500/20 text-green-600" : "text-muted-foreground hover:bg-black/5"}`}
+                              title="Auto-Play Messages"
+                            >
+                              {autoTTS ? <Headphones className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
+                            </button>
+                        </div>
+                      </>
+                    )}
                 </div>
             </div>
 
-            <div className={`flex items-center gap-2 p-1.5 rounded-3xl border shadow-lg transition-all ${isResponderMode ? "bg-blue-50/50 border-blue-200" : "bg-background border-border"}`}>
+            {/* Input Bubble - UNIFIED STYLING (Fixed "Grayed" Issue) */}
+            <div className="flex items-center gap-2 p-1.5 rounded-3xl border shadow-lg transition-all bg-background border-border">
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
                 
@@ -472,11 +470,9 @@ const ReportChat = () => {
                         disabled={isUploading} 
                         className="border-0 bg-transparent focus-visible:ring-0 h-9 px-2 shadow-none" 
                     />
-                     {/* Internal Mic Button - This is now the ONLY Mic button */}
                      <button onClick={toggleDictation} className={`absolute right-2 top-1/2 -translate-y-1/2 ${isDictating ? "text-red-500 animate-pulse" : "text-muted-foreground"}`}>{isDictating ? <MicOff className="w-4 h-4"/> : <Mic className="w-4 h-4"/>}</button>
                 </div>
 
-                {/* Send Button only appears when there is text. No external mic button. */}
                 {newMessage.trim() && (
                     <Button onClick={() => handleSendText()} disabled={isUploading} size="icon" className={`h-9 w-9 rounded-full shrink-0 ${isResponderMode ? "bg-blue-600 hover:bg-blue-700" : ""}`}>{isUploading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}</Button>
                 )}
