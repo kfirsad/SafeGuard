@@ -20,7 +20,6 @@ import {
 } from "firebase/firestore";
 
 // --- Configuration ---
-// Make sure GEMINI_MODEL is set to "gemini-2.5-flash-lite" in your api.ts file
 import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL, GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL } from "@/config/api";
 
 // --- Types ---
@@ -30,7 +29,7 @@ interface Message {
   translation?: string;
   language?: string;
   sender: "user" | "responder";
-  timestamp: any; // Firestore Timestamp
+  createdAt: any; // Changed from 'timestamp' to match your DB field
   type: "text" | "image" | "voice" | "video";
   altText?: string; 
 }
@@ -103,12 +102,10 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
 const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> => {
   if (!GEMINI_API_KEY) return null;
   try {
-    // A. Fetch the image blob (Requires CORS configuration on Firebase Storage bucket)
     const imgRes = await fetch(mediaUrl);
     if (!imgRes.ok) return null;
     const blob = await imgRes.blob();
     
-    // B. Convert to Base64
     const base64 = await new Promise<string>((resolve) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
@@ -116,7 +113,6 @@ const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> 
     });
     const cleanBase64 = base64.split(',')[1];
 
-    // C. Send to Gemini
     const res = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -148,26 +144,21 @@ const ReportChat = () => {
   const { eventId } = useParams();
   const navigate = useNavigate();
   
-  // State
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [isClosed, setIsClosed] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   
-  // Audio & TTS
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false); // Placeholder for actual recording logic if needed
+  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   
-  // Language & Role
   const [userLanguage, setUserLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>(getBrowserLang());
   const [responderLanguage, setResponderLanguage] = useState<keyof typeof SUPPORTED_LANGUAGES>('en'); 
   const [isResponderMode, setIsResponderMode] = useState(false);
   
-  // AI Suggestions
   const [suggestedSnippets, setSuggestedSnippets] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
-  // Refs
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
@@ -184,13 +175,12 @@ const ReportChat = () => {
     window.speechSynthesis.cancel();
     setSpeakingMessageId(id);
     const utterance = new SpeechSynthesisUtterance(text);
-    // Adjust language code format for SpeechSynthesis (e.g., 'he' -> 'he-IL')
     utterance.lang = language === 'he' ? 'he-IL' : language === 'es' ? 'es-ES' : 'en-US'; 
     utterance.onend = () => setSpeakingMessageId(null);
     window.speechSynthesis.speak(utterance);
   };
 
-  // --- STT Handler (Simplified) ---
+  // --- STT Handler ---
   const [isDictating, setIsDictating] = useState(false);
   const recognitionRef = useRef<any>(null);
   
@@ -215,7 +205,7 @@ const ReportChat = () => {
       }
   };
 
-  // --- Main Logic: Firestore & AI Listeners ---
+  // --- Main Logic ---
   useEffect(() => {
     if (!eventId) return;
 
@@ -227,11 +217,8 @@ const ReportChat = () => {
     const unsubMessages = onSnapshot(q, async (snapshot) => {
       const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
       setMessages(msgs);
-      
-      // Auto-scroll
       setTimeout(() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
 
-      // 1. Smart Replies Logic
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
         lastProcessedMessageId.current = lastUserMsg.id;
@@ -241,17 +228,12 @@ const ReportChat = () => {
         setIsGeneratingReplies(false);
       }
 
-      // 2. Alt-Text Logic (Quota Protection Included)
       const mediaToDescribe = msgs.find((m) => {
-         // Must be an image without existing alt text
          if (m.type !== "image" || m.altText) return false;
-         
-         // Must not be currently processing
          if (processingAltRef.current.has(m.id)) return false;
          
-         // QUOTA PROTECTION: Only process "New" images (uploaded in last 5 minutes)
          const now = Date.now();
-         const msgTime = m.timestamp?.toDate ? m.timestamp.toDate().getTime() : now;
+         const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now; // Fixed: using createdAt
          const isRecent = (now - msgTime) < 5 * 60 * 1000; 
          
          return isRecent;
@@ -261,12 +243,10 @@ const ReportChat = () => {
         console.log("🤖 Gemini: Analyzing new image...", mediaToDescribe.id);
         processingAltRef.current.add(mediaToDescribe.id);
         
-        // Small delay to ensure file is ready on storage
         setTimeout(async () => {
              const alt = await fetchAltTextFromGemini(mediaToDescribe.text);
              if (alt) {
                  await updateDoc(doc(db, "events", eventId, "messages", mediaToDescribe.id), { altText: alt });
-                 console.log("✅ Gemini: Alt text saved.");
              }
              processingAltRef.current.delete(mediaToDescribe.id);
         }, 1500);
@@ -276,7 +256,6 @@ const ReportChat = () => {
     return () => { unsubReport(); unsubMessages(); };
   }, [eventId]);
 
-  // --- Actions ---
   const handleSendText = async (textOverride?: string) => {
     const textToSend = textOverride || newMessage;
     if (!textToSend.trim() || isClosed) return;
@@ -317,7 +296,6 @@ const ReportChat = () => {
 
   return (
     <div className="min-h-screen bg-background flex flex-col relative font-sans">
-      {/* Top Bar */}
       <div className="sticky top-0 z-40 bg-card/90 backdrop-blur-xl border-b border-border shadow-sm">
         <div className="flex items-center gap-3 px-4 py-3">
           <Button variant="ghost" size="icon" onClick={() => navigate(-1)}><ArrowLeft className="w-5 h-5" /></Button>
@@ -334,7 +312,6 @@ const ReportChat = () => {
         </div>
       </div>
 
-      {/* Messages List */}
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-48">
         {messages.map((message) => {
           const isUser = message.sender === "user";
@@ -343,7 +320,6 @@ const ReportChat = () => {
             <div className={`max-w-[85%] relative`}>
               <div className={`rounded-2xl px-4 py-3 shadow-sm ${isUser ? "bg-primary text-primary-foreground rounded-br-none" : "bg-secondary text-secondary-foreground rounded-bl-none"}`}>
                 
-                {/* Text Type */}
                 {message.type === "text" && (
                   <div className="flex flex-col gap-1">
                       <div className="flex items-start gap-3">
@@ -361,7 +337,6 @@ const ReportChat = () => {
                   </div>
                 )}
 
-                {/* Image Type + Alt Text + TTS */}
                 {message.type === "image" && (
                   <div className="space-y-2">
                     <img 
@@ -370,16 +345,15 @@ const ReportChat = () => {
                       loading="lazy"
                     />
                     
-                    {/* Alt Text Container */}
                     {message.altText ? (
                         <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
                             <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
                             
-                            <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white">
+                            {/* Line Clamp 2 added here */}
+                            <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white line-clamp-2 overflow-hidden text-ellipsis">
                                 {message.altText}
                             </p>
                             
-                            {/* TTS Button */}
                             <button 
                                 onClick={(e) => { 
                                   e.preventDefault();
@@ -397,7 +371,6 @@ const ReportChat = () => {
                             </button>
                         </div>
                     ) : (
-                        // Loading Indicator
                         <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
                              <Loader2 className="w-3 h-3 animate-spin opacity-50" />
                              <span className="text-[10px] opacity-50">AI analyzing...</span>
@@ -406,14 +379,13 @@ const ReportChat = () => {
                   </div>
                 )}
 
-                {/* Video Type */}
                 {message.type === "video" && (
                     <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
                 )}
 
-                {/* Time */}
+                {/* Fixed: Using 'createdAt' instead of 'timestamp' */}
                 <p className={`text-[9px] mt-1.5 text-right opacity-60`}>
-                    {message.timestamp?.toDate ? message.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "..."}
+                    {message.createdAt?.toDate ? message.createdAt.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Sending..."}
                 </p>
               </div>
             </div>
@@ -422,11 +394,8 @@ const ReportChat = () => {
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Bottom Controls */}
       {!isClosed ? (
         <div className="fixed bottom-0 left-0 right-0 p-4 bg-gradient-to-t from-background via-background/95 to-transparent pt-8">
-            
-            {/* Suggestions */}
             <AnimatePresence>
                 {isResponderMode && suggestedSnippets.length > 0 && (
                     <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }} className="flex gap-2 overflow-x-auto pb-3 px-1 no-scrollbar">
@@ -443,7 +412,6 @@ const ReportChat = () => {
                 )}
             </AnimatePresence>
 
-            {/* Role/Lang Switcher */}
             <div className="flex justify-center mb-3">
                 <div className="flex items-center gap-3 bg-card/90 backdrop-blur border border-border px-3 py-1.5 rounded-full shadow-sm">
                     <DropdownMenu>
@@ -462,7 +430,6 @@ const ReportChat = () => {
                 </div>
             </div>
 
-            {/* Input Field */}
             <div className={`flex items-center gap-2 p-1.5 rounded-3xl border shadow-lg transition-all ${isResponderMode ? "bg-blue-50/50 border-blue-200" : "bg-background border-border"}`}>
                 <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={(e) => handleFileSelect(e, "image")} />
                 <input type="file" ref={videoInputRef} className="hidden" accept="video/*" onChange={(e) => handleFileSelect(e, "video")} />
