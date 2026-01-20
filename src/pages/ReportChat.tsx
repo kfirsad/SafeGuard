@@ -230,28 +230,26 @@ const ReportChat = () => {
         }
       }
 
-      // Smart Replies
+      // --- Smart Replies Logic (Only Text) ---
       const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
       if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current) {
-        lastProcessedMessageId.current = lastUserMsg.id;
-        setIsGeneratingReplies(true);
-        const snippets = await fetchSmartReplies(lastUserMsg.translation || lastUserMsg.text);
-        setSuggestedSnippets(snippets);
-        setIsGeneratingReplies(false);
+        lastProcessedMessageId.current = lastUserMsg.id; // Always update ID to prevent re-processing
+        
+        // Only call AI if the message is TEXT
+        if (lastUserMsg.type === "text") {
+            setIsGeneratingReplies(true);
+            const snippets = await fetchSmartReplies(lastUserMsg.translation || lastUserMsg.text);
+            setSuggestedSnippets(snippets);
+            setIsGeneratingReplies(false);
+        }
+        // If it's an image/video, we do nothing -> Old suggestions stay.
       }
 
       // --- Alt Text Logic ---
       const mediaToDescribe = msgs.find((m) => {
-         // 1. Must be an image without existing alt text
          if (m.type !== "image" || m.altText) return false;
-         
-         // 2. Must be from the USER (Citizen) - FR images are ignored by AI
          if (m.sender !== "user") return false;
-
-         // 3. Must not be currently processing
          if (processingAltRef.current.has(m.id)) return false;
-         
-         // 4. Must be recent (last 5 min)
          const now = Date.now();
          const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now;
          const isRecent = (now - msgTime) < 5 * 60 * 1000; 
@@ -332,8 +330,6 @@ const ReportChat = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-6 pb-48">
         {messages.map((message) => {
           const isMe = message.sender === (isResponderMode ? "responder" : "user");
-          
-          // Strict Rule: Show Alt Text UI ONLY if I am Responder AND message is from Citizen
           const showAltTextUI = isResponderMode && message.sender === "user";
 
           return (
@@ -366,7 +362,6 @@ const ReportChat = () => {
                       loading="lazy"
                     />
                     
-                    {/* Only show this section if viewed by Responder AND sent by Citizen */}
                     {showAltTextUI && (
                       <>
                         {message.altText ? (
