@@ -16,11 +16,11 @@ import {
 import { userDB as db, storage } from "@/lib/firebase"; 
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
 import { 
-  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc
+  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc 
 } from "firebase/firestore";
 
 // --- Configuration ---
-import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL } from "@/config/api";
+import { GROQ_API_KEY, GROQ_API_URL, GROQ_MODEL, GEMINI_API_KEY, GEMINI_API_URL, GEMINI_MODEL } from "@/config/api";
 
 // Cache for LLM responses to reduce API calls
 const responseCache = new Map<string, { responses: string[], timestamp: number }>();
@@ -43,14 +43,16 @@ const getBrowserLang = (): keyof typeof SUPPORTED_LANGUAGES => {
     return (Object.keys(SUPPORTED_LANGUAGES).includes(lang) ? lang : 'en') as keyof typeof SUPPORTED_LANGUAGES;
 };
 
+// message shape
 interface Message {
   id: string;
   text: string;
   translation?: string;
   language?: string;
   sender: "user" | "responder";
-  timestamp: any; 
+  timestamp: any;
   type: "text" | "image" | "voice" | "video";
+  altText?: string; // new
 }
 
 // --- Smart Fallback System ---
@@ -173,6 +175,60 @@ const translateText = async (text: string, sourceLang: string, targetLang: strin
     } catch (error) { return null; }
 };
 
+// Gemini helper
+const fetchAltTextFromGemini = async (mediaUrl: string, mediaType: "image" | "video"): Promise<string | null> => {
+  if (!GEMINI_API_KEY || mediaType === "video") return null; // Skip videos for now
+  try {
+    // Fetch the image
+    const imgRes = await fetch(mediaUrl);
+    if (!imgRes.ok) return null;
+    const blob = await imgRes.blob();
+    const base64 = await new Promise<string>((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.readAsDataURL(blob);
+    });
+    const mimeType = blob.type;
+
+    const res = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              {
+                text: "You are generating a concise alt-text for emergency response. Provide one clear, factual sentence (max 25 words) describing what is visibly happening. Avoid speculation."
+              },
+              {
+                inlineData: {
+                  mimeType,
+                  data: base64.split(',')[1] // Remove data:mime;base64,
+                }
+              }
+            ]
+          }
+        ],
+        safetySettings: [{ category: "HARM_CATEGORY_DANGEROUS_CONTENT", threshold: "BLOCK_LOW_AND_ABOVE" }]
+      })
+    });
+    if (!res.ok) {
+      console.warn("Gemini API error:", res.status, await res.text());
+      return null;
+    }
+    const data = await res.json();
+    const text = data?.candidates?.[0]?.content?.parts
+      ?.map((p: any) => p.text || "")
+      .join(" ")
+      .trim();
+    if (text) return text.slice(0, 280);
+    return null;
+  } catch (err) {
+    console.warn("Gemini alt-text failed", err);
+    return null;
+  }
+};
+
 // --- Hooks ---
 const useSpeechRecognition = (onResult: (text: string) => void, languageCode: string) => {
   const [isListening, setIsListening] = useState(false);
@@ -228,6 +284,7 @@ const ReportChat = () => {
   const videoInputRef = useRef<HTMLInputElement>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
+  const processingAltRef = useRef<Set<string>>(new Set());
 
   // STT
   const handleDictationResult = (text: string) => setNewMessage(prev => prev.endsWith(text) ? prev : text);
@@ -249,34 +306,42 @@ const ReportChat = () => {
   useEffect(() => {
     if (!eventId) return;
     const unsubReport = onSnapshot(doc(db, "events", eventId), (doc) => {
-        if (doc.exists()) setIsClosed(doc.data().status === "closed");
+      if (doc.exists()) setIsClosed(doc.data().status === "closed");
     });
-    
+
     const q = query(collection(db, "events", eventId, "messages"), orderBy("createdAt", "asc"));
     const unsubMessages = onSnapshot(q, async (snapshot) => {
-        const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
-        setMessages(msgs);
-        messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Message));
+      setMessages(msgs);
+      messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
 
-        const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
-        
-        // Only generate AI replies if:
-        // 1. There's a user message
-        // 2. We haven't processed this specific message ID yet
-        // 3. We're not currently generating
-        if (lastUserMsg && 
-            lastUserMsg.id !== lastProcessedMessageId.current && 
-            !isGeneratingReplies) {
-            
-            console.log("🆕 New user message detected:", lastUserMsg.id);
-            lastProcessedMessageId.current = lastUserMsg.id;
-            setIsGeneratingReplies(true);
-            
-            const textToAnalyze = lastUserMsg.translation || lastUserMsg.text;
-            const snippets = await fetchSmartReplies(textToAnalyze);
-            setSuggestedSnippets(snippets);
-            setIsGeneratingReplies(false);
+      // existing smart replies logic...
+      const lastUserMsg = [...msgs].reverse().find(m => m.sender === "user");
+      if (lastUserMsg && lastUserMsg.id !== lastProcessedMessageId.current && !isGeneratingReplies) {
+        lastProcessedMessageId.current = lastUserMsg.id;
+        setIsGeneratingReplies(true);
+        const textToAnalyze = lastUserMsg.translation || lastUserMsg.text;
+        const snippets = await fetchSmartReplies(textToAnalyze);
+        setSuggestedSnippets(snippets);
+        setIsGeneratingReplies(false);
+      }
+
+      // NEW: generate alt-text for media messages missing altText
+      const mediaToDescribe = msgs.find(
+        (m) =>
+          (m.type === "image" || m.type === "video") &&
+          !m.altText &&
+          !processingAltRef.current.has(m.id)
+      );
+      if (mediaToDescribe) {
+        processingAltRef.current.add(mediaToDescribe.id);
+        const alt = await fetchAltTextFromGemini(mediaToDescribe.text, mediaToDescribe.type);
+        if (alt && eventId) {
+          const messageRef = doc(db, "events", eventId, "messages", mediaToDescribe.id);
+          await updateDoc(messageRef, { altText: alt });
         }
+        processingAltRef.current.delete(mediaToDescribe.id);
+      }
     });
     return () => { unsubReport(); unsubMessages(); };
   }, [eventId, isGeneratingReplies]);
@@ -391,8 +456,26 @@ const ReportChat = () => {
                     )}
                 </div>
               )}
-              {message.type === "image" && <img src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />}
-              {message.type === "video" && <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />}
+              {message.type === "image" && (
+                <div className="space-y-2">
+                  <img src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
+                  {message.altText && (
+                    <p className="text-[11px] italic text-muted-foreground bg-background/40 rounded-md px-2 py-1 border border-border/50">
+                      {message.altText}
+                    </p>
+                  )}
+                </div>
+              )}
+              {message.type === "video" && (
+                <div className="space-y-2">
+                  <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
+                  {message.altText && (
+                    <p className="text-[11px] italic text-muted-foreground bg-background/40 rounded-md px-2 py-1 border border-border/50">
+                      {message.altText}
+                    </p>
+                  )}
+                </div>
+              )}
               {message.type === "voice" && <audio controls src={message.text} className="h-8 w-[200px]" />}
               <p className={`text-[10px] mt-1 text-right ${message.sender === "user" ? "text-primary-foreground/70" : "text-muted-foreground"}`}>{message.timestamp?.toDate ? message.timestamp.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "..."}</p>
             </div>
