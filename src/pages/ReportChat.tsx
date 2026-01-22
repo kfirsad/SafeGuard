@@ -100,34 +100,55 @@ const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> 
   if (!GEMINI_API_KEY) return null;
   try {
     const imgRes = await fetch(mediaUrl);
-    if (!imgRes.ok) return null;
+    if (!imgRes.ok) {
+      console.error("Failed to fetch image:", imgRes.status, await imgRes.text());
+      return null;
+    }
     const blob = await imgRes.blob();
+    console.log("Blob type:", blob.type, "Blob size:", blob.size);
     
-    const base64 = await new Promise<string>((resolve) => {
+    // Check for supported MIME types
+    const supportedMimeTypes = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+    if (!supportedMimeTypes.includes(blob.type)) {
+      console.error("Unsupported image type:", blob.type);
+      return null;
+    }
+    
+    const base64 = await new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => resolve(reader.result as string);
+      reader.onerror = reject;
       reader.readAsDataURL(blob);
     });
     const cleanBase64 = base64.split(',')[1];
+    console.log("Base64 length:", cleanBase64.length);
+
+    const requestBody = {
+      contents: [{
+        parts: [
+          { text: "Describe this emergency scene for a 911 dispatcher. Max 15 words. Focus on hazards, injuries, or fire." },
+          { inline_data: { mime_type: blob.type, data: cleanBase64 } }
+        ]
+      }]
+    };
+    console.log("Request body:", JSON.stringify(requestBody).slice(0, 500) + "...");
 
     const res = await fetch(`${GEMINI_API_URL}/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: "Describe this emergency scene for a 911 dispatcher. Max 15 words. Focus on hazards, injuries, or fire." },
-            { inlineData: { mimeType: blob.type, data: cleanBase64 } }
-          ]
-        }]
-      })
+      body: JSON.stringify(requestBody)
     });
     
-    if (!res.ok) return null;
+    if (!res.ok) {
+      console.error("Gemini API error:", res.status, await res.text());
+      return null;
+    }
 
     const data = await res.json();
+    console.log("Gemini response:", data);
     return data?.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || null;
   } catch (err) {
+    console.error("Error in fetchAltTextFromGemini:", err);
     return null;
   }
 };
@@ -155,12 +176,18 @@ const ReportChat = () => {
   const [suggestedSnippets, setSuggestedSnippets] = useState<string[]>([]);
   const [isGeneratingReplies, setIsGeneratingReplies] = useState(false);
 
+  // Track when responder enters the chat to only process new images
+  const [chatEntryTime, setChatEntryTime] = useState<number | null>(null);
+
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const videoInputRef = useRef<HTMLInputElement>(null);
   const lastProcessedMessageId = useRef<string | null>(null);
   const lastSpokenMessageId = useRef<string | null>(null);
   const processingAltRef = useRef<Set<string>>(new Set());
+
+  // State to track which images are currently being processed for alt-text
+  const [processingAltIds, setProcessingAltIds] = useState<Set<string>>(new Set());
 
   // --- TTS Handler ---
   const handleSpeak = (text: string, id: string, language: string) => {
@@ -206,6 +233,9 @@ const ReportChat = () => {
   useEffect(() => {
     if (!eventId) return;
 
+    // Set entry time when entering chat
+    if (!chatEntryTime) setChatEntryTime(Date.now());
+
     const unsubReport = onSnapshot(doc(db, "events", eventId), (doc) => {
       if (doc.exists()) setIsClosed(doc.data().status === "closed");
     });
@@ -246,31 +276,33 @@ const ReportChat = () => {
         }
       }
 
-      // Alt Text Logic
+      // Alt Text Logic - Only process images sent after chat entry and within last 5 minutes
       const mediaToDescribe = msgs.find((m) => {
          if (m.type !== "image" || m.altText) return false;
          if (m.sender !== "user") return false;
          if (processingAltRef.current.has(m.id)) return false;
          const now = Date.now();
          const msgTime = m.createdAt?.toDate ? m.createdAt.toDate().getTime() : now;
-         const isRecent = (now - msgTime) < 5 * 60 * 1000; 
+         const isRecent = msgTime > (chatEntryTime || 0) && (now - msgTime) < 5 * 60 * 1000; 
          return isRecent;
       });
 
       if (mediaToDescribe) {
         processingAltRef.current.add(mediaToDescribe.id);
+        setProcessingAltIds(prev => new Set(prev).add(mediaToDescribe.id));
         setTimeout(async () => {
              const alt = await fetchAltTextFromGemini(mediaToDescribe.text);
              if (alt) {
                  await updateDoc(doc(db, "events", eventId, "messages", mediaToDescribe.id), { altText: alt });
              }
              processingAltRef.current.delete(mediaToDescribe.id);
+             setProcessingAltIds(prev => { const newSet = new Set(prev); newSet.delete(mediaToDescribe.id); return newSet; });
         }, 1500);
       }
     });
 
     return () => { unsubReport(); unsubMessages(); };
-  }, [eventId, isResponderMode, autoTTS]); 
+  }, [eventId, isResponderMode, autoTTS, chatEntryTime]); 
 
   // --- Handlers ---
 
@@ -424,10 +456,13 @@ const ReportChat = () => {
                                 </button>
                             </div>
                         ) : (
-                            <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
-                                <Loader2 className="w-3 h-3 animate-spin opacity-50" />
-                                <span className="text-[10px] opacity-50">AI analyzing...</span>
-                            </div>
+                            // Only show "AI analyzing..." for images currently being processed and sent after chat entry
+                            processingAltIds.has(message.id) && message.createdAt?.toDate().getTime() > (chatEntryTime || 0) && (
+                              <div className="flex items-center gap-2 px-2 py-1 bg-black/10 rounded-md mt-1">
+                                  <Loader2 className="w-3 h-3 animate-spin opacity-50" />
+                                  <span className="text-[10px] opacity-50">AI analyzing...</span>
+                              </div>
+                            )
                         )}
                       </>
                     )}
