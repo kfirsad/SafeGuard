@@ -437,7 +437,7 @@ const ReportChat = () => {
                         {message.altText ? (
                             <div className="flex items-center gap-2 bg-black/30 rounded-md p-2 mt-1 backdrop-blur-sm border border-white/10">
                                 <BrainCircuit className="w-4 h-4 shrink-0 opacity-70 text-white" />
-                                <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white line-clamp-2 overflow-hidden text-ellipsis">
+                                <p className="text-[11px] leading-snug flex-1 italic opacity-90 text-white whitespace-normal break-words">
                                     {message.altText}
                                 </p>
                                 <button 
