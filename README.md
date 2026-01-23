@@ -20,14 +20,11 @@
 * **Frontend:** React, TypeScript, Vite
 * **Styling:** Tailwind CSS, Shadcn/UI, Framer Motion (Animations)
 * **Backend / Database:** Firebase (Firestore, Storage, Auth)
-* **AI / ML:** Hugging Face Inference API (via local Proxy), Web Speech API
+* **AI / ML:** Qroq Inference API (via local Proxy), Gemini API, Web Speech API
 * **Icons:** Lucide React
 
 🧠 AI Architecture
 The system uses a Hybrid AI Approach:
 
-Cloud Inference: Tries to fetch results from Hugging Face models via the proxy.
+Cloud Inference: Tries to fetch results from Qroq and Gemini models via the proxy.
 Local Fallback: If the API is unreachable (410/403/500 errors), a local rule-based "Brain" takes over to ensure the app never crashes during an emergency.
-
-📄 License
-Distributed under the MIT License.
