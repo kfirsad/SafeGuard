@@ -18,7 +18,7 @@ const ResponderDashboard = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const responderPhone = localStorage.getItem("responderPhone");
+    const responderPhone = sessionStorage.getItem("responderPhone");
     if (!responderPhone) {
       setEvents([]);
       return;

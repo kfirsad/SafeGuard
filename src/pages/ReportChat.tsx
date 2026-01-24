@@ -8,15 +8,16 @@ import {
 } from "lucide-react"; 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { useToast } from "@/hooks/use-toast";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 // Firebase Imports
-import { userDB as db, storage } from "@/lib/firebase"; 
+import { auth, normalizePhoneNumber, userDB as db, storage } from "@/lib/firebase"; 
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage"; 
 import { 
-  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc 
+  collection, query, orderBy, onSnapshot, addDoc, serverTimestamp, doc, updateDoc, getDoc 
 } from "firebase/firestore";
 
 // --- Configuration ---
@@ -136,6 +137,7 @@ const fetchAltTextFromGemini = async (mediaUrl: string): Promise<string | null> 
 const ReportChat = () => {
   const { eventId } = useParams();
   const navigate = useNavigate();
+  const { toast } = useToast();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
@@ -205,6 +207,49 @@ const ReportChat = () => {
   // --- Main Logic ---
   useEffect(() => {
     if (!eventId) return;
+
+    const verifyAccess = async () => {
+      const responderPhone = sessionStorage.getItem("responderPhone");
+      const normalizedResponder = responderPhone ? normalizePhoneNumber(responderPhone) : null;
+      const normalizedUser = auth.currentUser?.phoneNumber ? normalizePhoneNumber(auth.currentUser.phoneNumber) : null;
+      try {
+        const eventRef = doc(db, "events", eventId);
+        const eventSnap = await getDoc(eventRef);
+        if (!eventSnap.exists()) {
+          toast({
+            title: "Chat not found",
+            description: "This event doesn't exist.",
+            variant: "destructive",
+          });
+          navigate(responderPhone ? "/responder" : "/dashboard");
+          return;
+        }
+        const data = eventSnap.data();
+        const eventUser = data.userId ? normalizePhoneNumber(String(data.userId)) : null;
+        const eventResponder = data.responderPhone ? normalizePhoneNumber(String(data.responderPhone)) : null;
+        const hasAccess =
+          (normalizedUser && eventUser && normalizedUser === eventUser) ||
+          (normalizedResponder && eventResponder && normalizedResponder === eventResponder);
+        if (!hasAccess) {
+          toast({
+            title: "Access denied",
+            description: "You don't have access to this chat.",
+            variant: "destructive",
+          });
+          navigate(responderPhone ? "/responder" : "/dashboard");
+        }
+      } catch (error) {
+        console.error("Failed to verify chat access", error);
+        toast({
+          title: "Error",
+          description: "Failed to verify access. Please try again.",
+          variant: "destructive",
+        });
+        navigate(responderPhone ? "/responder" : "/dashboard");
+      }
+    };
+
+    void verifyAccess();
 
     const unsubReport = onSnapshot(doc(db, "events", eventId), (doc) => {
       if (doc.exists()) setIsClosed(doc.data().status === "closed");

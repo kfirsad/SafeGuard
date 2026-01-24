@@ -45,6 +45,8 @@ const Auth = () => {
   const { toast } = useToast();
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
 useEffect(() => {
+  sessionStorage.removeItem("responderPhone");
+  sessionStorage.removeItem("isAdmin");
   if (recaptchaVerifierRef.current) {
     recaptchaVerifierRef.current.clear();
     recaptchaVerifierRef.current = null;
@@ -142,11 +144,13 @@ useEffect(() => {
       try{
         //check for admin credentials
         if (phone===ADMIN_CREDENTIALS.phone && password===ADMIN_CREDENTIALS.password){
+          sessionStorage.setItem("isAdmin", "1");
           toast({
             title: "Welcome Admin!",
             description: "Redirecting to admin panel",
           });
           navigate("/admin");
+          return;
         }
         //check for First responder
         const isResponder= await checkResponderInRemoteDB(phone,password);
@@ -155,7 +159,7 @@ useEffect(() => {
             title: "Welcome Responder!",
             description: "You're now logged in as a responder",
           });
-          localStorage.setItem("responderPhone", phone);
+          sessionStorage.setItem("responderPhone", phone);
           navigate("/responder");
         }
         else{
