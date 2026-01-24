@@ -1,7 +1,7 @@
 import { useState,useRef} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings } from "lucide-react";
+import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -36,6 +36,8 @@ const Auth = () => {
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
+  const [isPhoneSubmitting, setIsPhoneSubmitting] = useState(false);
+  const [isOtpSubmitting, setIsOtpSubmitting] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [isNewUser] = useState(true);
@@ -75,6 +77,7 @@ useEffect(() => {
     if (phone.length >= 10) {
       if (role === "citizen") {
         try{
+          setIsPhoneSubmitting(true);
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
           const result=await signInWithPhoneNumber(auth,normilizedPhone,recaptchaVerifierRef.current!);
           setConfirmation(result);
@@ -91,6 +94,8 @@ useEffect(() => {
             variant: "destructive",
           });
           console.error("signInWithPhoneNumber error:", error);
+        } finally {
+          setIsPhoneSubmitting(false);
         }}
       if (role === "worker") {
         setStep("password");
@@ -107,6 +112,7 @@ useEffect(() => {
     e.preventDefault();
     if (otp.length === 6 && confirmation) {
       try{
+        setIsOtpSubmitting(true);
         await confirmation.confirm(otp);
         if (await findUser(phone)===false) {
           setStep("terms");
@@ -124,6 +130,8 @@ useEffect(() => {
         description: "The verification code is incorrect",
         variant: "destructive",
       });
+    } finally {
+      setIsOtpSubmitting(false);
     }
   }
 };
@@ -279,12 +287,13 @@ useEffect(() => {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="pl-12 h-14 text-lg bg-secondary border-border"
+                    disabled={isPhoneSubmitting}
                   />
                 </div>
 
-                <Button type="submit" variant="emergency" size="xl" className="w-full">
-                  Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button type="submit" variant="emergency" size="xl" className="w-full" disabled={isPhoneSubmitting}>
+                  {isPhoneSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 ml-2" />}
+                  {isPhoneSubmitting ? "Checking..." : "Continue"}
                 </Button>
               </div>
 
@@ -324,11 +333,12 @@ useEffect(() => {
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   className="h-14 text-2xl text-center tracking-[0.5em] bg-secondary border-border font-mono"
                   maxLength={6}
+                  disabled={isOtpSubmitting}
                 />
 
-                <Button type="submit" variant="emergency" size="xl" className="w-full">
-                  Verify & Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button type="submit" variant="emergency" size="xl" className="w-full" disabled={isOtpSubmitting}>
+                  {isOtpSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 ml-2" />}
+                  {isOtpSubmitting ? "Verifying..." : "Verify & Continue"}
                 </Button>
               </div>
 

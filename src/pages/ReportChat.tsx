@@ -438,6 +438,10 @@ const ReportChat = () => {
                     <video controls src={message.text} className="rounded-lg max-h-60 w-auto object-cover border border-white/20" />
                 )}
 
+                {message.type === "voice" && (
+                    <audio controls src={message.text} className="w-full" />
+                )}
+
                 <p className={`text-[9px] mt-1.5 text-right opacity-60`}>
                     {message.createdAt?.toDate ? message.createdAt.toDate().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : "Sending..."}
                 </p>
