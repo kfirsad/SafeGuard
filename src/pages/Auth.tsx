@@ -13,8 +13,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
-  setPersistence,
-  browserSessionPersistence
+  onAuthStateChanged
 } from "firebase/auth"; 
 import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
@@ -29,7 +28,6 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
-  setPersistence(auth, browserSessionPersistence)
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
@@ -41,12 +39,29 @@ const Auth = () => {
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [isNewUser] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        navigate("/dashboard", { replace: true });
+        return;
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, [navigate]);
+
 useEffect(() => {
   sessionStorage.removeItem("responderPhone");
   sessionStorage.removeItem("isAdmin");
+}, []);
+
+useEffect(() => {
+  if (!isAuthReady) return;
   if (recaptchaVerifierRef.current) {
     recaptchaVerifierRef.current.clear();
     recaptchaVerifierRef.current = null;
@@ -66,7 +81,23 @@ useEffect(() => {
       recaptchaVerifierRef.current = null;
     }
   };
-}, []);
+}, [isAuthReady]);
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-24 h-24 rounded-3xl bg-gradient-emergency flex items-center justify-center shadow-xl shadow-primary/30">
+            <Shield className="w-12 h-12 text-primary-foreground" />
+          </div>
+          <h1 className="text-3xl font-display font-bold text-foreground">
+            SafeGuard
+          </h1>
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);

@@ -9,6 +9,8 @@ import BottomNav from "@/components/BottomNav";
 import LanguageSelector from "@/components/LanguageSelector";
 import HowItWorksModal from "@/components/HowItWorksModal";
 import { useToast } from "@/hooks/use-toast";
+import { auth } from "@/lib/firebase";
+import { signOut } from "firebase/auth";
 
 const Profile = () => {
   const navigate = useNavigate();
@@ -36,12 +38,20 @@ const Profile = () => {
     });
   };
 
-  const handleLogout = () => {
-    toast({
-      title: "Logged Out",
-      description: "You have been logged out successfully.",
-    });
-    navigate("/auth");
+  const handleLogout = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Sign out failed", error);
+    } finally {
+      sessionStorage.removeItem("responderPhone");
+      sessionStorage.removeItem("isAdmin");
+      toast({
+        title: "Logged Out",
+        description: "You have been logged out successfully.",
+      });
+      navigate("/auth");
+    }
   };
 
   return (
