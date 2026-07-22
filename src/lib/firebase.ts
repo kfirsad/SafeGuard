@@ -9,13 +9,13 @@ import { add } from "date-fns";
 
 // Your NEW configuration
 const firebaseConfig = {
-  apiKey: "VITE_FIREBASE_API_KEY_PLACEHOLDER",
-  authDomain: "cityshobapp-v2.firebaseapp.com",
-  projectId: "cityshobapp-v2",
-  storageBucket: "cityshobapp-v2.firebasestorage.app",
-  messagingSenderId: "800106331910",
-  appId: "1:800106331910:web:ad0c9b841b5f420cdb6887",
-  measurementId: "G-SHXJ88GTE2"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID || ""
 };
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);

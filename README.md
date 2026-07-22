@@ -25,14 +25,14 @@
 * **Frontend:** React, TypeScript, Vite
 * **Styling:** Tailwind CSS, Shadcn/UI, Framer Motion (Animations)
 * **Backend / Database:** Firebase (Firestore, Storage, Auth)
-* **AI / ML:** Groq Inference API, Gemini API, Web Speech API
+* **AI / ML:** Groq Inference API, Anthropic Claude, Gemini API, Web Speech API
 * **Icons:** Lucide React
 
 ---
 
 ## 🧠 AI Architecture
 The system uses a **Hybrid AI Approach** to ensure uptime:
-1. **Cloud Inference:** Tries to fetch results from Groq and Gemini models via APIs.
+1. **Cloud Inference:** Tries to fetch results from Groq, Anthropic Claude, and Gemini models via APIs.
 2. **Local Fallback:** If the API is unreachable (410/403/500 errors), a local rule-based "Brain" takes over to ensure the app never crashes during an emergency.
 
 ---
@@ -56,14 +56,15 @@ npm install
 ```
 
 ### 4. Configure Environment Variables
-The application relies on external AI APIs (Groq and Gemini) for intelligent features.
+The application relies on external APIs (Groq, Gemini, and Firebase) for its intelligent features and backend storage.
 1. Create a `.env` file in the root directory:
    ```bash
    cp .env.example .env
    ```
-2. Open the `.env` file and fill in your API keys:
+2. Open the `.env` file and fill in your API keys and credentials:
    * **`VITE_GROQ_API_KEY`**: Your Groq API key (get one from the [Groq Console](https://console.groq.com/)).
    * **`VITE_GEMINI_API_KEY`**: Your Gemini API key (get one from the [Google AI Studio](https://aistudio.google.com/)).
+   * **`VITE_FIREBASE_*`**: Your Firebase configuration keys (from your Firebase project settings).
 
 > [!WARNING]
 > Never commit your `.env` file to version control. It is already added to `.gitignore` to prevent accidental uploads.
@@ -78,19 +79,18 @@ Open your browser and navigate to `http://localhost:8080` (or the port specified
 ---
 
 ## 📦 Firebase Setup
-The application is pre-configured with a default Firebase project structure. If you wish to host your own database, authentication, and storage services:
+To set up your own Firebase project for database, authentication, and storage services:
 1. Create a project in the [Firebase Console](https://console.firebase.google.com/).
 2. Enable **Firestore Database**, **Authentication** (e.g., Phone sign-in), and **Storage**.
-3. Replace the `firebaseConfig` object in [src/lib/firebase.ts](file:///e:/Github/TypeScript/SafeGuard-repo/src/lib/firebase.ts) with your credentials:
-   ```typescript
-   const firebaseConfig = {
-     apiKey: "YOUR_API_KEY",
-     authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-     projectId: "YOUR_PROJECT_ID",
-     storageBucket: "YOUR_PROJECT_ID.firebasestorage.app",
-     messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-     appId: "YOUR_APP_ID"
-   };
+3. Copy your project's web configuration values into your local `.env` file:
+   ```env
+   VITE_FIREBASE_API_KEY=your_firebase_api_key
+   VITE_FIREBASE_AUTH_DOMAIN=your_project_id.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your_project_id
+   VITE_FIREBASE_STORAGE_BUCKET=your_project_id.firebasestorage.app
+   VITE_FIREBASE_MESSAGING_SENDER_ID=your_messaging_sender_id
+   VITE_FIREBASE_APP_ID=your_app_id
+   VITE_FIREBASE_MEASUREMENT_ID=your_measurement_id
    ```
 
 ---
@@ -109,6 +109,7 @@ SafeGuard is optimized to be deployed to modern static hosting services like Ver
    * Add the following keys and their respective values:
      * `VITE_GROQ_API_KEY` = `your_actual_groq_key`
      * `VITE_GEMINI_API_KEY` = `your_actual_gemini_key`
+     * Add all `VITE_FIREBASE_*` variables with your Firebase settings.
 3. **Deploy**:
    * Click **Deploy**. Vercel will automatically build the project using Vite and deploy it.
 
@@ -122,6 +123,6 @@ SafeGuard is optimized to be deployed to modern static hosting services like Ver
    * Publish directory: `dist`
 3. **Configure Environment Variables**:
    * Go to **Site Configuration > Environment variables**.
-   * Add `VITE_GROQ_API_KEY` and `VITE_GEMINI_API_KEY`.
+   * Add `VITE_GROQ_API_KEY`, `VITE_GEMINI_API_KEY`, and all `VITE_FIREBASE_*` variables.
 4. **Deploy**:
    * Trigger the deployment, and Netlify will serve the build folder.
