@@ -8,6 +8,23 @@
 
 ---
 
+## 📖 Project Background
+
+**SafeGuard** was developed by the **Ruppin Tech Club** for **KabatOne**.
+
+*   **About KabatOne:** KabatOne is a public safety and security technology company specializing in unified command-and-control software platforms (including CAD and emergency dispatch systems) for governments, municipalities, and critical infrastructure, helping protect over 73 million citizens globally.
+*   **Our Collaboration:** SafeGuard serves as a progressive, AI-powered extension designed to streamline communication between citizens in distress and dispatch operations.
+
+### 👥 Contributors
+
+The following members of the Ruppin Tech Club developed this project:
+*   **Kfir Sadeh** - Head of Tech Club
+*   **Ran Oram**
+*   **Daniel Geron**
+*   **Shahaf Sela**
+
+---
+
 ## 🌟 Key Features
 
 * **🚨 AI Incident Classification:** Automatically categorizes reports (Medical, Police, Fire) using Zero-Shot Classification based on user description.
