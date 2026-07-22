@@ -1,7 +1,7 @@
 import { useState,useRef} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
-import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings } from "lucide-react";
+import { Shield, Phone, Lock, ArrowRight, User, Briefcase, Check, Settings, Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -13,8 +13,7 @@ import {
   RecaptchaVerifier,
   signInWithPhoneNumber,
   ConfirmationResult,
-  setPersistence,
-  browserSessionPersistence
+  onAuthStateChanged
 } from "firebase/auth"; 
 import { checkResponderInRemoteDB } from "@/mockDB";
 import { auth,db,userDB,storage,addUser,findUser} from "@/lib/firebase";
@@ -29,20 +28,40 @@ const ADMIN_CREDENTIALS = {
 };
 
 const Auth = () => {
-  setPersistence(auth, browserSessionPersistence)
   const [confirmation, setConfirmation] = useState<ConfirmationResult | null>(null);
   const [step, setStep] = useState<AuthStep>("role");
   const [role, setRole] = useState<UserRole | null>(null);
   const [phone, setPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [password, setPassword] = useState("");
+  const [isPhoneSubmitting, setIsPhoneSubmitting] = useState(false);
+  const [isOtpSubmitting, setIsOtpSubmitting] = useState(false);
   const [acceptedTerms, setAcceptedTerms] = useState(false);
   const [acceptedPrivacy, setAcceptedPrivacy] = useState(false);
   const [isNewUser] = useState(true);
+  const [isAuthReady, setIsAuthReady] = useState(false);
   const navigate = useNavigate();
   const { toast } = useToast();
   const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, (user) => {
+      if (user) {
+        navigate("/dashboard", { replace: true });
+        return;
+      }
+      setIsAuthReady(true);
+    });
+    return () => unsubscribe();
+  }, [navigate]);
+
 useEffect(() => {
+  sessionStorage.removeItem("responderPhone");
+  sessionStorage.removeItem("isAdmin");
+}, []);
+
+useEffect(() => {
+  if (!isAuthReady) return;
   if (recaptchaVerifierRef.current) {
     recaptchaVerifierRef.current.clear();
     recaptchaVerifierRef.current = null;
@@ -62,7 +81,23 @@ useEffect(() => {
       recaptchaVerifierRef.current = null;
     }
   };
-}, []);
+}, [isAuthReady]);
+
+  if (!isAuthReady) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4 text-center">
+          <div className="w-24 h-24 rounded-3xl bg-gradient-emergency flex items-center justify-center shadow-xl shadow-primary/30">
+            <Shield className="w-12 h-12 text-primary-foreground" />
+          </div>
+          <h1 className="text-3xl font-display font-bold text-foreground">
+            SafeGuard
+          </h1>
+          <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+        </div>
+      </div>
+    );
+  }
 
   const handleRoleSelect = (selectedRole: UserRole) => {
     setRole(selectedRole);
@@ -75,6 +110,7 @@ useEffect(() => {
     if (phone.length >= 10) {
       if (role === "citizen") {
         try{
+          setIsPhoneSubmitting(true);
           const normilizedPhone=phone.startsWith('+')?phone:`+972${phone.slice(1)}`;
           const result=await signInWithPhoneNumber(auth,normilizedPhone,recaptchaVerifierRef.current!);
           setConfirmation(result);
@@ -91,6 +127,8 @@ useEffect(() => {
             variant: "destructive",
           });
           console.error("signInWithPhoneNumber error:", error);
+        } finally {
+          setIsPhoneSubmitting(false);
         }}
       if (role === "worker") {
         setStep("password");
@@ -107,6 +145,7 @@ useEffect(() => {
     e.preventDefault();
     if (otp.length === 6 && confirmation) {
       try{
+        setIsOtpSubmitting(true);
         await confirmation.confirm(otp);
         if (await findUser(phone)===false) {
           setStep("terms");
@@ -124,6 +163,8 @@ useEffect(() => {
         description: "The verification code is incorrect",
         variant: "destructive",
       });
+    } finally {
+      setIsOtpSubmitting(false);
     }
   }
 };
@@ -134,11 +175,13 @@ useEffect(() => {
       try{
         //check for admin credentials
         if (phone===ADMIN_CREDENTIALS.phone && password===ADMIN_CREDENTIALS.password){
+          sessionStorage.setItem("isAdmin", "1");
           toast({
             title: "Welcome Admin!",
             description: "Redirecting to admin panel",
           });
           navigate("/admin");
+          return;
         }
         //check for First responder
         const isResponder= await checkResponderInRemoteDB(phone,password);
@@ -147,7 +190,7 @@ useEffect(() => {
             title: "Welcome Responder!",
             description: "You're now logged in as a responder",
           });
-          localStorage.setItem("responderPhone", phone);
+          sessionStorage.setItem("responderPhone", phone);
           navigate("/responder");
         }
         else{
@@ -279,12 +322,13 @@ useEffect(() => {
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="pl-12 h-14 text-lg bg-secondary border-border"
+                    disabled={isPhoneSubmitting}
                   />
                 </div>
 
-                <Button type="submit" variant="emergency" size="xl" className="w-full">
-                  Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button type="submit" variant="emergency" size="xl" className="w-full" disabled={isPhoneSubmitting}>
+                  {isPhoneSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 ml-2" />}
+                  {isPhoneSubmitting ? "Checking..." : "Continue"}
                 </Button>
               </div>
 
@@ -324,11 +368,12 @@ useEffect(() => {
                   onChange={(e) => setOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   className="h-14 text-2xl text-center tracking-[0.5em] bg-secondary border-border font-mono"
                   maxLength={6}
+                  disabled={isOtpSubmitting}
                 />
 
-                <Button type="submit" variant="emergency" size="xl" className="w-full">
-                  Verify & Continue
-                  <ArrowRight className="w-5 h-5 ml-2" />
+                <Button type="submit" variant="emergency" size="xl" className="w-full" disabled={isOtpSubmitting}>
+                  {isOtpSubmitting ? <Loader2 className="w-5 h-5 animate-spin mr-2" /> : <ArrowRight className="w-5 h-5 ml-2" />}
+                  {isOtpSubmitting ? "Verifying..." : "Verify & Continue"}
                 </Button>
               </div>
 
