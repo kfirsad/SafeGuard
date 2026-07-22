@@ -18,7 +18,7 @@
 ### 👥 Contributors
 
 The following members of the Ruppin Tech Club developed this project:
-*   **Kfir Sadeh** - Head of Tech Club
+*   **Kfir Sadeh** - Team lead
 *   **Ran Oram**
 *   **Daniel Geron**
 *   **Shahaf Sela**
