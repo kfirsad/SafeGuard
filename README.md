@@ -19,9 +19,9 @@
 
 The following members of the Ruppin Tech Club developed this project:
 *   **Kfir Sadeh** - Team lead
-*   **Ran Oram**
-*   **Daniel Geron**
-*   **Shahaf Sela**
+*   **Ran Oram @ranoram24**
+*   **Daniel Geron @Daniel-Geron**
+*   **Shahaf Sela @ShahafSela**
 
 ---
 
